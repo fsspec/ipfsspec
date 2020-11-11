@@ -21,7 +21,7 @@ class IPFSGateway:
         try:
             res = requests.get(self.url + "/api/v0/version")
             return res.ok
-        except ConnectionError:
+        except requests.exceptions.ConnectionError:
             return False
 
 
