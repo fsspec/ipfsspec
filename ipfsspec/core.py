@@ -85,4 +85,8 @@ class IPFSFileSystem(AbstractFileSystem):
 
 class IPFSBufferedFile(AbstractBufferedFile):
     def _fetch_range(self, start, end):
-        return self.fs.cat_file(self.path)[start:end]
+        content = self.fs.cat_file(self.path)[start:end]
+        if "b" not in self.mode:
+            return content.decode("utf-8")
+        else:
+            return content
