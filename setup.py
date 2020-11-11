@@ -1,11 +1,14 @@
 import setuptools
+import versioneer
+
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
     name="ipfsspec",
-    version="0.0.1",
+    version=versioneer.get_version(),
+    cmdclass=versioneer.get_cmdclass(),
     author="Tobias Kölling",
     author_email="tobias.koelling@physik.uni-muenchen.de",
     description="readonly implementation of fsspec for IPFS",
