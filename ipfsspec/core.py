@@ -18,8 +18,11 @@ class IPFSGateway:
         return res.json()
 
     def is_available(self):
-        res = requests.get(self.url + "/api/v0/version")
-        return res.ok
+        try:
+            res = requests.get(self.url + "/api/v0/version")
+            return res.ok
+        except ConnectionError:
+            return False
 
 
 GATEWAYS = [
