@@ -1,0 +1,10 @@
+from .core import IPFSFileSystem
+from fsspec import register_implementation
+
+register_implementation(IPFSFileSystem.protocol, IPFSFileSystem)
+
+__all__ = ["IPFSFileSystem"]
+
+from ._version import get_versions
+__version__ = get_versions()['version']
+del get_versions
