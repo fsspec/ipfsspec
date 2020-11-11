@@ -5,6 +5,7 @@ import logging
 
 logger = logging.getLogger("ipfsspec")
 
+
 class IPFSGateway:
     def __init__(self, url):
         self.url = url
@@ -20,11 +21,13 @@ class IPFSGateway:
         res = requests.get(self.url + "/api/v0/version")
         return res.ok
 
+
 GATEWAYS = [
     IPFSGateway("http://localhost:8080"),
     IPFSGateway("https://ipfs.io"),
     IPFSGateway("https://gateway.pinata.cloud"),
 ]
+
 
 class IPFSFileSystem(AbstractFileSystem):
     protocol = "ipfs"
@@ -44,13 +47,13 @@ class IPFSFileSystem(AbstractFileSystem):
         links = res["Objects"][0]["Links"]
         types = {1: "directory", 2: "file"}
         if detail:
-            return [{"name": path + "/" + l["Name"],
-                     "size": l["Size"],
-                     "type": types[l["Type"]]}
-                    for l in links]
+            return [{"name": path + "/" + link["Name"],
+                     "size": link["Size"],
+                     "type": types[link["Type"]]}
+                    for link in links]
         else:
-            return [path + "/" + l["Name"]
-                    for l in links]
+            return [path + "/" + link["Name"]
+                    for link in links]
 
     def cat_file(self, path):
         return self._gateway.get(path)
@@ -82,6 +85,7 @@ class IPFSFileSystem(AbstractFileSystem):
         else:
             ftype = "directory"
         return {"name": path, "size": res["DataSize"], "type": ftype}
+
 
 class IPFSBufferedFile(AbstractBufferedFile):
     def _fetch_range(self, start, end):
