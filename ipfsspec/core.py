@@ -1,5 +1,6 @@
 from fsspec.spec import AbstractFileSystem, AbstractBufferedFile
 import requests
+import hashlib
 
 import logging
 
@@ -59,7 +60,11 @@ class IPFSFileSystem(AbstractFileSystem):
                     for link in links]
 
     def cat_file(self, path):
-        return self._gateway.get(path)
+        data = self._gw_get(path)
+        if logger.isEnabledFor(logging.DEBUG):
+            h = hashlib.sha256(data).hexdigest()
+            logger.debug("sha256 of received resouce at %s: %s", path, h)
+        return data
 
     def _open(
         self,
