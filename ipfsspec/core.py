@@ -35,6 +35,7 @@ GATEWAYS = [
     IPFSGateway("http://localhost:8080"),
     IPFSGateway("https://ipfs.io"),
     IPFSGateway("https://gateway.pinata.cloud"),
+    IPFSGateway("https://dweb.link"),
 ]
 
 
