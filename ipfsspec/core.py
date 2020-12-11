@@ -6,16 +6,21 @@ import logging
 
 logger = logging.getLogger("ipfsspec")
 
+MAX_RETRIES = 2
+
 
 class IPFSGateway:
     def __init__(self, url):
         self.url = url
 
     def get(self, path):
-        return requests.get(self.url + "/ipfs/" + path).content
+        res = requests.get(self.url + "/ipfs/" + path)
+        res.raise_for_status()
+        return res.content
 
     def apipost(self, call, **kwargs):
         res = requests.post(self.url + "/api/v0/" + call, params=kwargs)
+        res.raise_for_status()
         return res.json()
 
     def is_available(self):
@@ -38,16 +43,57 @@ class IPFSFileSystem(AbstractFileSystem):
 
     def __init__(self, *args, **kwargs):
         super(IPFSFileSystem, self).__init__(*args, **kwargs)
+        self._bad_gateways = []
+        self._select_gateway()
+
+    def _select_gateway(self):
         for gw in GATEWAYS:
             if gw.is_available():
                 self._gateway = gw
                 break
+            else:
+                self._bad_gateways.append(gw)
         else:
             raise RuntimeError("no available gateway found")
         logger.debug("using IPFS gateway at %s", self._gateway.url)
 
+    def _switch_gateway(self):
+        logger.debug("switching gateway")
+        self._bad_gateways.append(self._gateway)
+        for gw in GATEWAYS:
+            if gw not in self._bad_gateways:
+                if gw.is_available():
+                    self._gateway = gw
+                    break
+                else:
+                    self._bad_gateways.append(gw)
+        else:
+            raise RuntimeError("no available gateway found")
+        logger.debug("using IPFS gateway at %s", self._gateway.url)
+
+    def _run_on_any_gateway(self, f):
+        i = 0
+        while True:
+            try:
+                res = f()
+                break
+            except requests.ConnectionError:
+                if i < MAX_RETRIES:
+                    i += 1
+                    self._switch_gateway()
+                else:
+                    raise
+        self._bad_gateways = []
+        return res
+
+    def _gw_get(self, path):
+        return self._run_on_any_gateway(lambda: self._gateway.get(path))
+
+    def _gw_apipost(self, call, **kwargs):
+        return self._run_on_any_gateway(lambda: self._gateway.apipost(call, **kwargs))
+
     def ls(self, path, detail=True, **kwargs):
-        res = self._gateway.apipost("ls", arg=path)
+        res = self._gw_apipost("ls", arg=path)
         links = res["Objects"][0]["Links"]
         types = {1: "directory", 2: "file"}
         if detail:
@@ -87,7 +133,7 @@ class IPFSFileSystem(AbstractFileSystem):
         )
 
     def info(self, path, **kwargs):
-        res = self._gateway.apipost("object/stat", arg=path)
+        res = self._gw_apipost("object/stat", arg=path)
         if res["NumLinks"] == 0:
             ftype = "file"
         else:
