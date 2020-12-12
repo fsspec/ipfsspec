@@ -1,6 +1,7 @@
 from fsspec.spec import AbstractFileSystem, AbstractBufferedFile
 import requests
 import hashlib
+import functools
 
 import logging
 
@@ -106,6 +107,7 @@ class IPFSFileSystem(AbstractFileSystem):
             return [path + "/" + link["Name"]
                     for link in links]
 
+    @functools.lru_cache
     def cat_file(self, path):
         data = self._gw_get(path)
         if logger.isEnabledFor(logging.DEBUG):
