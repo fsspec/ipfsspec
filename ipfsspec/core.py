@@ -2,6 +2,7 @@ from fsspec.spec import AbstractFileSystem, AbstractBufferedFile
 import requests
 import hashlib
 import functools
+import time
 
 import logging
 
@@ -13,86 +14,114 @@ MAX_RETRIES = 2
 class IPFSGateway:
     def __init__(self, url):
         self.url = url
+        self.state = "unknown"
+        self.min_backoff = 1e-9
+        self.max_backoff = 5
+        self.backoff_time = 0
+        self.next_request_time = time.monotonic()
 
     def get(self, path):
         res = requests.get(self.url + "/ipfs/" + path)
+        if res.status_code == 429: # too many requests
+            self._backoff()
+            return None
+        elif res.status_code == 200:
+            self._speedup()
         res.raise_for_status()
         return res.content
 
     def apipost(self, call, **kwargs):
         res = requests.post(self.url + "/api/v0/" + call, params=kwargs)
+        if res.status_code == 429: # too many requests
+            self._backoff()
+            return None
+        elif res.status_code == 200:
+            self._speedup()
         res.raise_for_status()
         return res.json()
 
-    def is_available(self):
+    def _schedule_next(self):
+        self.next_request_time = time.monotonic() + self.backoff_time
+
+    def _backoff(self):
+        self.backoff_time = min(max(self.min_backoff, self.backoff_time) * 2,
+                                self.max_backoff)
+        logging.debug("%s: backing off -> %f sec", self.url, self.backoff_time)
+        self._schedule_next()
+
+    def _speedup(self):
+        self.backoff_time = max(self.min_backoff, self.backoff_time * 0.9)
+        logging.debug("%s: speeding up -> %f sec", self.url, self.backoff_time)
+        self._schedule_next()
+
+    def _init_state(self):
         try:
             res = requests.get(self.url + "/api/v0/version")
-            return res.ok
+            if res.ok:
+                self.state = "online"
+            else:
+                self.state = "offline"
         except requests.exceptions.ConnectionError:
-            return False
+            self.state = "offline"
+
+
+    def get_state(self):
+        if self.state == "unknown":
+            self._init_state()
+        now = time.monotonic()
+        if self.next_request_time > now:
+            return ("backoff", self.next_request_time - now)
+        else:
+            return (self.state, None)
 
 
 GATEWAYS = [
-    IPFSGateway("http://localhost:8080"),
-    IPFSGateway("https://ipfs.io"),
-    IPFSGateway("https://gateway.pinata.cloud"),
-    IPFSGateway("https://dweb.link"),
+    "http://localhost:8080",
+    "https://ipfs.io",
+    "https://gateway.pinata.cloud",
+    "https://dweb.link",
 ]
 
 
 class IPFSFileSystem(AbstractFileSystem):
     protocol = "ipfs"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, gateways=None, timeout=10, **kwargs):
         super(IPFSFileSystem, self).__init__(*args, **kwargs)
-        self._bad_gateways = []
-        self._select_gateway()
+        gateways = gateways or GATEWAYS
+        self._gateways = [IPFSGateway(g) for g in gateways]
+        self.timeout = timeout
 
-    def _select_gateway(self):
-        for gw in GATEWAYS:
-            if gw.is_available():
-                self._gateway = gw
-                break
-            else:
-                self._bad_gateways.append(gw)
-        else:
-            raise RuntimeError("no available gateway found")
-        logger.debug("using IPFS gateway at %s", self._gateway.url)
-
-    def _switch_gateway(self):
-        logger.debug("switching gateway")
-        self._bad_gateways.append(self._gateway)
-        for gw in GATEWAYS:
-            if gw not in self._bad_gateways:
-                if gw.is_available():
-                    self._gateway = gw
-                    break
-                else:
-                    self._bad_gateways.append(gw)
-        else:
-            raise RuntimeError("no available gateway found")
-        logger.debug("using IPFS gateway at %s", self._gateway.url)
+    def _find_gateway(self):
+        backoff_list = []
+        for gw in self._gateways:
+            state, wait_time = gw.get_state()
+            if state == "online":
+                return gw, 0
+            if state == "backoff":
+                backoff_list.append((wait_time, gw))
+        if len(backoff_list) > 0:
+            return sorted(backoff_list)[0][::-1]
 
     def _run_on_any_gateway(self, f):
-        i = 0
-        while True:
+        timeout = time.monotonic() + self.timeout
+        while time.monotonic() <= timeout:
+            gw, wait_time = self._find_gateway()
+            if wait_time > 0:
+                time.sleep(wait_time)
             try:
-                res = f()
-                break
+                res = f(gw)
+                if res is not None:
+                    break
             except requests.ConnectionError:
-                if i < MAX_RETRIES:
-                    i += 1
-                    self._switch_gateway()
-                else:
-                    raise
-        self._bad_gateways = []
+                pass
         return res
 
     def _gw_get(self, path):
-        return self._run_on_any_gateway(lambda: self._gateway.get(path))
+        return self._run_on_any_gateway(lambda gw: gw.get(path))
 
     def _gw_apipost(self, call, **kwargs):
-        return self._run_on_any_gateway(lambda: self._gateway.apipost(call, **kwargs))
+        return self._run_on_any_gateway(lambda gw: gw.apipost(call, **kwargs))
 
     def ls(self, path, detail=True, **kwargs):
         res = self._gw_apipost("ls", arg=path)
