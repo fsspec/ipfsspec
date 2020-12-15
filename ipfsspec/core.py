@@ -19,9 +19,10 @@ class IPFSGateway:
         self.max_backoff = 5
         self.backoff_time = 0
         self.next_request_time = time.monotonic()
+        self.session = requests.Session()
 
     def get(self, path):
-        res = requests.get(self.url + "/ipfs/" + path)
+        res = self.session.get(self.url + "/ipfs/" + path)
         if res.status_code == 429:  # too many requests
             self._backoff()
             return None
@@ -31,7 +32,7 @@ class IPFSGateway:
         return res.content
 
     def apipost(self, call, **kwargs):
-        res = requests.post(self.url + "/api/v0/" + call, params=kwargs)
+        res = self.session.post(self.url + "/api/v0/" + call, params=kwargs)
         if res.status_code == 429:  # too many requests
             self._backoff()
             return None
@@ -56,7 +57,7 @@ class IPFSGateway:
 
     def _init_state(self):
         try:
-            res = requests.get(self.url + "/api/v0/version")
+            res = self.session.get(self.url + "/api/v0/version")
             if res.ok:
                 self.state = "online"
             else:
