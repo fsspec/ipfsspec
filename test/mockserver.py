@@ -63,3 +63,14 @@ def mock_server():
     server.start()
     yield server
     server.shutdown_server()
+
+
+@pytest.fixture
+def dual_mock_server():
+    server1 = MockServer(5000)
+    server2 = MockServer(5001)
+    server1.start()
+    server2.start()
+    yield server1, server2
+    server1.shutdown_server()
+    server2.shutdown_server()

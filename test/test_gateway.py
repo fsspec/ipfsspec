@@ -1,6 +1,6 @@
 import datetime
 import json
-from mockserver import mock_server
+from mockserver import mock_server, dual_mock_server
 
 from flask import abort, request
 
@@ -54,3 +54,18 @@ def test_backoff(mock_server):
         with fs.open("foo") as f:
             assert f.read().decode("utf-8") == "bar"
     assert s.request_count < 240
+
+def test_backoff_use_faster_server(dual_mock_server):
+    s1 = RateLimitedServer(datetime.timedelta(seconds=0.1),
+            {"foo": "bar"})
+    s1.configure(dual_mock_server[0])
+    s2 = RateLimitedServer(datetime.timedelta(seconds=0.01),
+            {"foo": "bar"})
+    s2.configure(dual_mock_server[1])
+
+    fs = fsspec.filesystem("ipfs", gateways=[dual_mock_server[0].url,
+                                             dual_mock_server[1].url])
+    for _ in range(100):
+        with fs.open("foo") as f:
+            assert f.read().decode("utf-8") == "bar"
+    assert s1.request_count < s2.request_count
