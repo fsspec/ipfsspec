@@ -34,7 +34,7 @@ class MockServer(Thread):
 
     def _shutdown_server(self):
         from flask import request
-        if not 'werkzeug.server.shutdown' in request.environ:
+        if 'werkzeug.server.shutdown' not in request.environ:
             raise RuntimeError('Not running the development server')
         request.environ['werkzeug.server.shutdown']()
         return 'Server shutting down...'
@@ -50,7 +50,7 @@ class MockServer(Thread):
     def add_json_response(self, url, serializable, methods=('GET',)):
         def callback():
             return jsonify(serializable)
-        
+
         self.add_callback_response(url, callback, methods=methods)
 
     def run(self):

@@ -22,7 +22,7 @@ class IPFSGateway:
 
     def get(self, path):
         res = requests.get(self.url + "/ipfs/" + path)
-        if res.status_code == 429: # too many requests
+        if res.status_code == 429:  # too many requests
             self._backoff()
             return None
         elif res.status_code == 200:
@@ -32,7 +32,7 @@ class IPFSGateway:
 
     def apipost(self, call, **kwargs):
         res = requests.post(self.url + "/api/v0/" + call, params=kwargs)
-        if res.status_code == 429: # too many requests
+        if res.status_code == 429:  # too many requests
             self._backoff()
             return None
         elif res.status_code == 200:
@@ -63,7 +63,6 @@ class IPFSGateway:
                 self.state = "offline"
         except requests.exceptions.ConnectionError:
             self.state = "offline"
-
 
     def get_state(self):
         if self.state == "unknown":

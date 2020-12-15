@@ -1,10 +1,10 @@
 import datetime
 import json
-from mockserver import mock_server, dual_mock_server
+from mockserver import mock_server, dual_mock_server  # noqa: F401
 
 from flask import abort, request
 
-import ipfsspec
+import ipfsspec  # noqa: F401
 import fsspec
 
 
@@ -15,10 +15,12 @@ class RateLimitedServer:
         self.objects = objects
         self.request_count = 0
 
-    def configure(self, mock_server):
-        mock_server.add_callback_response("/ipfs/<oid>",
+    def configure(self, mock_server):  # noqa: F811
+        mock_server.add_callback_response(
+                "/ipfs/<oid>",
                 lambda oid: self.get_backoff(oid))
-        mock_server.add_callback_response("/api/v0/object/stat",
+        mock_server.add_callback_response(
+                "/api/v0/object/stat",
                 lambda: self.stat_backoff(),
                 ("POST",))
         mock_server.add_json_response("/api/v0/version", {"version": "0.1_test"})
@@ -44,8 +46,10 @@ class RateLimitedServer:
             self.next_allowed_request = now + self.max_rate
             return self.objects[oid]
 
-def test_backoff(mock_server):
-    s = RateLimitedServer(datetime.timedelta(seconds=0.01),
+
+def test_backoff(mock_server):  # noqa: F811
+    s = RateLimitedServer(
+            datetime.timedelta(seconds=0.01),
             {"foo": "bar"})
     s.configure(mock_server)
 
@@ -55,11 +59,14 @@ def test_backoff(mock_server):
             assert f.read().decode("utf-8") == "bar"
     assert s.request_count < 240
 
-def test_backoff_use_faster_server(dual_mock_server):
-    s1 = RateLimitedServer(datetime.timedelta(seconds=0.1),
+
+def test_backoff_use_faster_server(dual_mock_server):  # noqa: F811
+    s1 = RateLimitedServer(
+            datetime.timedelta(seconds=0.1),
             {"foo": "bar"})
     s1.configure(dual_mock_server[0])
-    s2 = RateLimitedServer(datetime.timedelta(seconds=0.01),
+    s2 = RateLimitedServer(
+            datetime.timedelta(seconds=0.01),
             {"foo": "bar"})
     s2.configure(dual_mock_server[1])
 
