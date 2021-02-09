@@ -113,6 +113,8 @@ class IPFSFileSystem(AbstractFileSystem):
                 backoff_list.append((wait_time, gw))
         if len(backoff_list) > 0:
             return sorted(backoff_list)[0][::-1]
+        else:
+            raise RuntimeError("no working gateways could be found")
 
     def _run_on_any_gateway(self, f):
         timeout = time.monotonic() + self.timeout
