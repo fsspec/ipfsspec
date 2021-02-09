@@ -1,78 +1,109 @@
 import datetime
 import json
-from mockserver import mock_server, dual_mock_server  # noqa: F401
-
-from flask import abort, request
+from mockserver import mock_servers
 
 import ipfsspec  # noqa: F401
 import fsspec
 
+from http.server import BaseHTTPRequestHandler
+import urllib.parse
 
-class RateLimitedServer:
-    def __init__(self, max_rate, objects):
-        self.max_rate = max_rate
-        self.next_allowed_request = datetime.datetime.now()
-        self.objects = objects
-        self.request_count = 0
 
-    def configure(self, mock_server):  # noqa: F811
-        mock_server.add_callback_response(
-                "/ipfs/<oid>",
-                lambda oid: self.get_backoff(oid))
-        mock_server.add_callback_response(
-                "/api/v0/object/stat",
-                lambda: self.stat_backoff(),
-                ("POST",))
-        mock_server.add_json_response("/api/v0/version", {"version": "0.1_test"})
+class BaseIPFSHandler(BaseHTTPRequestHandler):
+    objects = {}
 
-    def stat_backoff(self):
-        self.request_count += 1
-        now = datetime.datetime.now()
-        if now <= self.next_allowed_request:
-            abort(429)
-        else:
-            self.next_allowed_request = now + self.max_rate
+    def abort_before_request(self):
+        return False
 
-            oid = request.args.get("arg")
+    def object_size(self, oid):
+        return len(self.objects[oid].encode("utf-8"))
+
+    def do_GET(self):
+        if self.abort_before_request():
+            return
+        if self.path == "/api/v0/version":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"version": "0.1_test"}, ensure_ascii=False).encode("utf-8"))
+        elif self.path.startswith("/ipfs/"):
+            oid = self.path[6:]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(self.object_size(oid)))
+            self.end_headers()
+            self.wfile.write(self.objects[oid].encode("utf-8"))
+
+    def do_POST(self):
+        if self.abort_before_request():
+            return
+        urlparts = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(urlparts.query)
+        if urlparts.path == "/api/v0/object/stat":
+            oid = query.get("arg", [])[0]
             res = {"Hash": oid, "NumLinks": 0, "DataSize": len(self.objects[oid])}
-            return json.dumps(res)
-
-    def get_backoff(self, oid):
-        self.request_count += 1
-        now = datetime.datetime.now()
-        if now <= self.next_allowed_request:
-            abort(429)
-        else:
-            self.next_allowed_request = now + self.max_rate
-            return self.objects[oid]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
 
-def test_backoff(mock_server):  # noqa: F811
-    s = RateLimitedServer(
+def make_rate_limited_handler(max_rate, objects):
+    request_count = [0]
+    next_allowed_request = [datetime.datetime.now()]
+
+    _objects = objects
+
+    class RateLimitedHandler(BaseIPFSHandler):
+        objects = _objects
+
+        @classmethod
+        def get_request_count(cls):
+            return request_count[0]
+
+        def apply_rate_limit(self):
+            request_count[0] += 1
+            now = datetime.datetime.now()
+            if now <= next_allowed_request[0]:
+                self.send_response(429)
+                self.end_headers()
+                return True
+            else:
+                next_allowed_request[0] = now + max_rate
+                return False
+
+        def abort_before_request(self):
+            return self.apply_rate_limit()
+
+    return RateLimitedHandler
+
+
+def test_backoff():
+    handlers = [
+        make_rate_limited_handler(
             datetime.timedelta(seconds=0.01),
-            {"foo": "bar"})
-    s.configure(mock_server)
+            {"foo": "bar"}),
+    ]
+    with mock_servers(handlers) as gateways:
+        fs = fsspec.filesystem("ipfs", gateways=gateways, timeout=1)
+        for _ in range(100):
+            with fs.open("foo") as f:
+                assert f.read().decode("utf-8") == "bar"
+        assert handlers[0].get_request_count() < 240
 
-    fs = fsspec.filesystem("ipfs", gateways=[mock_server.url])
-    for _ in range(100):
-        with fs.open("foo") as f:
-            assert f.read().decode("utf-8") == "bar"
-    assert s.request_count < 240
 
-
-def test_backoff_use_faster_server(dual_mock_server):  # noqa: F811
-    s1 = RateLimitedServer(
+def test_backoff_use_faster_server():
+    handlers = [
+        make_rate_limited_handler(
             datetime.timedelta(seconds=0.1),
-            {"foo": "bar"})
-    s1.configure(dual_mock_server[0])
-    s2 = RateLimitedServer(
+            {"foo": "zapp"}),
+        make_rate_limited_handler(
             datetime.timedelta(seconds=0.01),
-            {"foo": "bar"})
-    s2.configure(dual_mock_server[1])
-
-    fs = fsspec.filesystem("ipfs", gateways=[dual_mock_server[0].url,
-                                             dual_mock_server[1].url])
-    for _ in range(100):
-        with fs.open("foo") as f:
-            assert f.read().decode("utf-8") == "bar"
-    assert s1.request_count < s2.request_count
+            {"foo": "zapp"}),
+    ]
+    with mock_servers(handlers) as gateways:
+        fs = fsspec.filesystem("ipfs", gateways=gateways, timeout=1)
+        for _ in range(100):
+            with fs.open("foo") as f:
+                assert f.read().decode("utf-8") == "zapp"
+        assert handlers[0].get_request_count() < handlers[1].get_request_count()
