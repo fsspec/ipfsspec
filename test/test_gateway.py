@@ -78,6 +78,27 @@ def make_rate_limited_handler(max_rate, objects):
     return RateLimitedHandler
 
 
+def make_normal_handler(objects):
+    _objects = objects
+
+    class NormalHandler(BaseIPFSHandler):
+        objects = _objects
+
+    return NormalHandler
+
+
+def make_incomplete_handler(objects):
+    _objects = {k: o[:-1] for k, o in objects.items()}
+
+    class IncompleteHandler(BaseIPFSHandler):
+        objects = _objects
+
+        def object_size(self, oid):
+            return super().object_size(oid) + 1
+
+    return IncompleteHandler
+
+
 def test_backoff():
     handlers = [
         make_rate_limited_handler(
@@ -107,3 +128,16 @@ def test_backoff_use_faster_server():
             with fs.open("foo") as f:
                 assert f.read().decode("utf-8") == "zapp"
         assert handlers[0].get_request_count() < handlers[1].get_request_count()
+
+
+def test_fallback_if_incomplete():
+    handlers = [
+        make_incomplete_handler(
+            {"foo": "baz"}),
+        make_normal_handler(
+            {"foo": "baz"}),
+    ]
+    with mock_servers(handlers) as gateways:
+        fs = fsspec.filesystem("ipfs", gateways=gateways, timeout=1)
+        with fs.open("foo") as f:
+            assert f.read().decode("utf-8") == "baz"

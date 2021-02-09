@@ -23,6 +23,17 @@ class IPFSGateway:
 
     def get(self, path):
         res = self.session.get(self.url + "/ipfs/" + path)
+        # this is from https://blog.petrzemek.net/2018/04/22/on-incomplete-http-reads-and-the-requests-library-in-python/
+        expected_length = res.headers.get('Content-Length')
+        if expected_length is not None:
+            actual_length = res.raw.tell()
+            expected_length = int(expected_length)
+            if actual_length < expected_length:
+                # if less than the expected amount of data is delivered, just backoff which will will eiter trigger a
+                # retry on the same server or will fall back to another server later on.
+                self._backoff()
+                return None
+
         if res.status_code == 429:  # too many requests
             self._backoff()
             return None
