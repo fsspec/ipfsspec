@@ -31,6 +31,7 @@ class IPFSGateway:
             if actual_length < expected_length:
                 # if less than the expected amount of data is delivered, just backoff which will will eiter trigger a
                 # retry on the same server or will fall back to another server later on.
+                logger.debug("received size of resource %s is %d, but %d was expected", path, actual_length, expected_length)
                 self._backoff()
                 return None
 
