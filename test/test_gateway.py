@@ -41,7 +41,7 @@ class BaseIPFSHandler(BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(urlparts.query)
         if urlparts.path == "/api/v0/object/stat":
             oid = query.get("arg", [])[0]
-            res = {"Hash": oid, "NumLinks": 0, "DataSize": len(self.objects[oid])}
+            res = {"Hash": oid, "NumLinks": 0, "DataSize": self.object_size(oid)}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
