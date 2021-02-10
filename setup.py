@@ -23,7 +23,7 @@ setuptools.setup(
     ],
     python_requires='>=3',
     install_requires=[
-        "fsspec",
+        "fsspec>=0.8.0",
         "requests",
     ],
 )
