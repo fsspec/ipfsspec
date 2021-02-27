@@ -2,7 +2,6 @@ import datetime
 import json
 from mockserver import mock_servers
 
-import ipfsspec  # noqa: F401
 import fsspec
 
 from http.server import BaseHTTPRequestHandler

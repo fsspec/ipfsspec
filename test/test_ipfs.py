@@ -1,4 +1,3 @@
-import ipfsspec  # noqa: F401
 import fsspec
 
 

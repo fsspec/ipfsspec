@@ -26,4 +26,9 @@ setuptools.setup(
         "fsspec>=0.8.0",
         "requests",
     ],
+    entry_points={
+        'fsspec.specs': [
+            'ipfs=ipfsspec.IPFSFileSystem',
+        ],
+    },
 )
