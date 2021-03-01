@@ -22,7 +22,11 @@ class IPFSGateway:
         self.session = requests.Session()
 
     def get(self, path):
-        res = self.session.get(self.url + "/ipfs/" + path)
+        try:
+            res = self.session.get(self.url + "/ipfs/" + path)
+        except requests.ConnectionError:
+            self._backoff()
+            return None
         # this is from https://blog.petrzemek.net/2018/04/22/on-incomplete-http-reads-and-the-requests-library-in-python/
         expected_length = res.headers.get('Content-Length')
         if expected_length is not None:
@@ -44,7 +48,11 @@ class IPFSGateway:
         return res.content
 
     def apipost(self, call, **kwargs):
-        res = self.session.post(self.url + "/api/v0/" + call, params=kwargs)
+        try:
+            res = self.session.post(self.url + "/api/v0/" + call, params=kwargs)
+        except requests.ConnectionError:
+            self._backoff()
+            return None
         if res.status_code == 429:  # too many requests
             self._backoff()
             return None
@@ -74,7 +82,7 @@ class IPFSGateway:
                 self.state = "online"
             else:
                 self.state = "offline"
-        except requests.exceptions.ConnectionError:
+        except requests.ConnectionError:
             self.state = "offline"
 
     def get_state(self):
@@ -123,12 +131,9 @@ class IPFSFileSystem(AbstractFileSystem):
             gw, wait_time = self._find_gateway()
             if wait_time > 0:
                 time.sleep(wait_time)
-            try:
-                res = f(gw)
-                if res is not None:
-                    break
-            except requests.ConnectionError:
-                pass
+            res = f(gw)
+            if res is not None:
+                break
         return res
 
     def _gw_get(self, path):
