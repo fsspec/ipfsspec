@@ -99,6 +99,7 @@ GATEWAYS = [
     "http://localhost:8080",
     "https://ipfs.io",
     "https://gateway.pinata.cloud",
+    "https://cloudflare-ipfs.com",
     "https://dweb.link",
 ]
 
