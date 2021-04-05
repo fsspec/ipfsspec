@@ -20,6 +20,9 @@ class IPFSGateway:
         self.backoff_time = 0
         self.next_request_time = time.monotonic()
         self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100)
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
 
     def get(self, path):
         try:
