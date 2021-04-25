@@ -1,8 +1,10 @@
 from fsspec.spec import AbstractFileSystem, AbstractBufferedFile
 import requests
+from requests.exceptions import HTTPError
 import hashlib
 import functools
 import time
+import json
 
 import logging
 
@@ -188,7 +190,19 @@ class IPFSFileSystem(AbstractFileSystem):
         )
 
     def info(self, path, **kwargs):
-        res = self._gw_apipost("object/stat", arg=path)
+        try:
+            res = self._gw_apipost("object/stat", arg=path)
+        except HTTPError as e:
+            try:
+                msg = e.response.json()
+            except json.JSONDecodeError:
+                raise IOError("unknown error") from e
+            else:
+                if "Message" in msg:
+                    raise FileNotFoundError(msg["Message"]) from e
+                else:
+                    raise IOError(msg) from e
+
         if res["NumLinks"] == 0:
             ftype = "file"
         else:
