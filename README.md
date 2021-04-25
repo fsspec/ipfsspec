@@ -11,4 +11,4 @@ with fsspec.open("ipfs://QmZ4tDuvesekSs4qM5ZBKpXiZGun7S2CYtEZRB3DYXkjGx", "r") a
     print(f.read())
 ```
 
-The current implementation uses a HTTP gateway to access the data. It tries to use a local one (which is expected to be found at `http://localhost:8080`) and falls back to `ipfs.io` if the local gateway is not available.
+The current implementation uses a HTTP gateway to access the data. It tries to use a local one (which is expected to be found at `http://127.0.0.1:8080`) and falls back to `ipfs.io` if the local gateway is not available.
