@@ -27,9 +27,11 @@ class IPFSGateway:
         self.session.mount('https://', adapter)
 
     def get(self, path):
+        logger.debug("get %s via %s", path, self.url)
         try:
             res = self.session.get(self.url + "/ipfs/" + path)
-        except requests.ConnectionError:
+        except requests.ConnectionError as e:
+            logger.debug("Connection Error: %s", e)
             self._backoff()
             return None
         # this is from https://blog.petrzemek.net/2018/04/22/on-incomplete-http-reads-and-the-requests-library-in-python/
@@ -53,6 +55,7 @@ class IPFSGateway:
         return res.content
 
     def apipost(self, call, **kwargs):
+        logger.debug("post %s via %s", call, self.url)
         try:
             res = self.session.post(self.url + "/api/v0/" + call, params=kwargs)
         except requests.ConnectionError:
@@ -72,12 +75,12 @@ class IPFSGateway:
     def _backoff(self):
         self.backoff_time = min(max(self.min_backoff, self.backoff_time) * 2,
                                 self.max_backoff)
-        logging.debug("%s: backing off -> %f sec", self.url, self.backoff_time)
+        logger.debug("%s: backing off -> %f sec", self.url, self.backoff_time)
         self._schedule_next()
 
     def _speedup(self):
         self.backoff_time = max(self.min_backoff, self.backoff_time * 0.9)
-        logging.debug("%s: speeding up -> %f sec", self.url, self.backoff_time)
+        logger.debug("%s: speeding up -> %f sec", self.url, self.backoff_time)
         self._schedule_next()
 
     def _init_state(self):
@@ -149,6 +152,7 @@ class IPFSFileSystem(AbstractFileSystem):
         return self._run_on_any_gateway(lambda gw: gw.apipost(call, **kwargs))
 
     def ls(self, path, detail=True, **kwargs):
+        logger.debug("ls on %s", path)
         res = self._gw_apipost("ls", arg=path)
         links = res["Objects"][0]["Links"]
         types = {1: "directory", 2: "file"}
@@ -163,6 +167,7 @@ class IPFSFileSystem(AbstractFileSystem):
 
     @functools.lru_cache()
     def cat_file(self, path):
+        logger.debug("cat on %s", path)
         data = self._gw_get(path)
         if logger.isEnabledFor(logging.DEBUG):
             h = hashlib.sha256(data).hexdigest()
@@ -190,6 +195,7 @@ class IPFSFileSystem(AbstractFileSystem):
         )
 
     def info(self, path, **kwargs):
+        logger.debug("info on %s", path)
         try:
             res = self._gw_apipost("object/stat", arg=path)
         except HTTPError as e:
