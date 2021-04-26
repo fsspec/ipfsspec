@@ -1,7 +1,11 @@
+from .unixfs_pb2 import Data as UnixFSData
+import cid
+
 from fsspec.spec import AbstractFileSystem, AbstractBufferedFile
 import requests
 from requests.exceptions import HTTPError
 import hashlib
+import base64
 import functools
 import time
 import json
@@ -196,24 +200,38 @@ class IPFSFileSystem(AbstractFileSystem):
 
     def info(self, path, **kwargs):
         logger.debug("info on %s", path)
-        try:
-            res = self._gw_apipost("object/stat", arg=path)
-        except HTTPError as e:
-            try:
-                msg = e.response.json()
-            except json.JSONDecodeError:
-                raise IOError("unknown error") from e
-            else:
-                if "Message" in msg:
-                    raise FileNotFoundError(msg["Message"]) from e
-                else:
-                    raise IOError(msg) from e
 
-        if res["NumLinks"] == 0:
+        def req(endpoint):
+            try:
+                return self._gw_apipost(endpoint, arg=path)
+            except HTTPError as e:
+                try:
+                    msg = e.response.json()
+                except json.JSONDecodeError:
+                    raise IOError("unknown error") from e
+                else:
+                    if "Message" in msg:
+                        raise FileNotFoundError(msg["Message"]) from e
+                    else:
+                        raise IOError(msg) from e
+
+        stat = req("object/stat")
+        c = cid.from_string(stat["Hash"])
+        if c.codec == "raw":
+            size = stat["DataSize"]
             ftype = "file"
         else:
-            ftype = "directory"
-        return {"name": path, "size": res["DataSize"], "type": ftype}
+            dag = req("dag/get")
+            data = UnixFSData()
+            data.ParseFromString(base64.b64decode(dag["data"]))
+
+            size = data.filesize
+            if data.Type == data.File:
+                ftype = "file"
+            else:
+                ftype = "directory"
+
+        return {"name": path, "size": size, "type": ftype}
 
 
 class IPFSBufferedFile(AbstractBufferedFile):
