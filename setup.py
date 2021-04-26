@@ -25,6 +25,8 @@ setuptools.setup(
     install_requires=[
         "fsspec>=0.9.0",
         "requests",
+        "protobuf",
+        "py-cid",
     ],
     entry_points={
         'fsspec.specs': [

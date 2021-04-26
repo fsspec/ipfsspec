@@ -1,8 +1,10 @@
 import datetime
 import json
+import base64
 from mockserver import mock_servers
 
 import fsspec
+from ipfsspec.unixfs_pb2 import Data as UnixFSData
 
 from http.server import BaseHTTPRequestHandler
 import urllib.parse
@@ -41,6 +43,16 @@ class BaseIPFSHandler(BaseHTTPRequestHandler):
         if urlparts.path == "/api/v0/object/stat":
             oid = query.get("arg", [])[0]
             res = {"Hash": oid, "NumLinks": 0, "DataSize": self.object_size(oid)}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+        if urlparts.path == "/api/v0/dag/get":
+            oid = query.get("arg", [])[0]
+            d = UnixFSData()
+            d.Type = d.File
+            d.filesize = self.object_size(oid)
+            res = {"data": base64.b64encode(d.SerializeToString()).decode("ascii"), "links": []}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -102,12 +114,12 @@ def test_backoff():
     handlers = [
         make_rate_limited_handler(
             datetime.timedelta(seconds=0.01),
-            {"foo": "bar"}),
+            {"QmTz3oc4gdpRMKP2sdGUPZTAGRngqjsi99BPoztyP53JMM": "bar"}),
     ]
     with mock_servers(handlers) as gateways:
         fs = fsspec.filesystem("ipfs", gateways=gateways, timeout=1)
-        for _ in range(100):
-            with fs.open("foo") as f:
+        for _ in range(50):
+            with fs.open("QmTz3oc4gdpRMKP2sdGUPZTAGRngqjsi99BPoztyP53JMM") as f:
                 assert f.read().decode("utf-8") == "bar"
         assert handlers[0].get_request_count() < 240
 
@@ -116,15 +128,15 @@ def test_backoff_use_faster_server():
     handlers = [
         make_rate_limited_handler(
             datetime.timedelta(seconds=0.1),
-            {"foo": "zapp"}),
+            {"QmaBoSxocSYTx1WLw55NJ2rEkvt5WTJxxuUSCWtabHurqE": "zapp"}),
         make_rate_limited_handler(
             datetime.timedelta(seconds=0.01),
-            {"foo": "zapp"}),
+            {"QmaBoSxocSYTx1WLw55NJ2rEkvt5WTJxxuUSCWtabHurqE": "zapp"}),
     ]
     with mock_servers(handlers) as gateways:
         fs = fsspec.filesystem("ipfs", gateways=gateways, timeout=1)
         for _ in range(100):
-            with fs.open("foo") as f:
+            with fs.open("QmaBoSxocSYTx1WLw55NJ2rEkvt5WTJxxuUSCWtabHurqE") as f:
                 assert f.read().decode("utf-8") == "zapp"
         assert handlers[0].get_request_count() < handlers[1].get_request_count()
 
@@ -132,11 +144,11 @@ def test_backoff_use_faster_server():
 def test_fallback_if_incomplete():
     handlers = [
         make_incomplete_handler(
-            {"foo": "baz"}),
+            {"QmWLdkp93sNxGRjnFHPaYg8tCQ35NBY3XPn6KiETd3Z4WR": "baz"}),
         make_normal_handler(
-            {"foo": "baz"}),
+            {"QmWLdkp93sNxGRjnFHPaYg8tCQ35NBY3XPn6KiETd3Z4WR": "baz"}),
     ]
     with mock_servers(handlers) as gateways:
         fs = fsspec.filesystem("ipfs", gateways=gateways, timeout=1)
-        with fs.open("foo") as f:
+        with fs.open("QmWLdkp93sNxGRjnFHPaYg8tCQ35NBY3XPn6KiETd3Z4WR") as f:
             assert f.read().decode("utf-8") == "baz"
