@@ -31,7 +31,7 @@ jobs:
         sudo bash install.sh
         ipfs --version
         ipfs init --profile server
-        ipfs daemon
+        ipfs daemon > ipfs.log &
     - name: Test with pytest
       run: |
         pip install pytest
