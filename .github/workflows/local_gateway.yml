@@ -1,18 +1,16 @@
-name: Check different gateway connection methods
+name: Test with local gateway
 
 on: [push]
 
 jobs:
-  build:
+  test:
 
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 4
       matrix:
         python-version: [3.9]
-        connection-method: ["default"]
         ipfs-version: ["0.8.0"]
-
     env:
       IPFSSPEC_GATEWAYS: "http://127.0.0.1:8080" # use only localhost as gateway
     steps:
