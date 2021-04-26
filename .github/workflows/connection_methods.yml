@@ -28,7 +28,7 @@ jobs:
         wget https://dist.ipfs.io/go-ipfs/v${{ matrix.ipfs-version }}/go-ipfs_v${{ matrix.ipfs-version }}_linux-amd64.tar.gz
         tar -xvzf go-ipfs_v${{ matrix.ipfs-version }}_linux-amd64.tar.gz
         cd go-ipfs
-        bash install.sh
+        sudo bash install.sh
         ipfs --version
         ipfs init --profile server
         ipfs daemon
