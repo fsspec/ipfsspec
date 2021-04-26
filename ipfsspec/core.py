@@ -5,6 +5,7 @@ import hashlib
 import functools
 import time
 import json
+import os
 
 import logging
 
@@ -112,12 +113,19 @@ GATEWAYS = [
 ]
 
 
+def get_default_gateways():
+    try:
+        return os.environ["IPFSSPEC_GATEWAYS"].split()
+    except KeyError:
+        return GATEWAYS
+
+
 class IPFSFileSystem(AbstractFileSystem):
     protocol = "ipfs"
 
     def __init__(self, *args, gateways=None, timeout=10, **kwargs):
         super(IPFSFileSystem, self).__init__(*args, **kwargs)
-        gateways = gateways or GATEWAYS
+        gateways = gateways or get_default_gateways()
         self._gateways = [IPFSGateway(g) for g in gateways]
         self.timeout = timeout
 
