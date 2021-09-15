@@ -29,9 +29,11 @@ jobs:
         tar -xvzf go-ipfs_v${{ matrix.ipfs-version }}_linux-amd64.tar.gz
         cd go-ipfs
         sudo bash install.sh
+        sysctl -w net.core.rmem_max=2500000
         ipfs --version
         ipfs init --profile server
         ipfs daemon > ipfs.log &
+        ipfs cat /ipfs/QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/readme
     - name: Test with pytest
       run: |
         pip install pytest pytest-asyncio
