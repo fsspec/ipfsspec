@@ -27,6 +27,7 @@ setuptools.setup(
         "requests",
         "protobuf>=3.15.8",
         "py-cid",
+        "aiohttp",
     ],
     entry_points={
         'fsspec.specs': [
