@@ -32,7 +32,7 @@ jobs:
         sysctl -w net.core.rmem_max=2500000
         ipfs --version
         ipfs init --profile server
-        ipfs daemon > ipfs.log &
+        ipfs daemon 2>ipfs.log | grep -i -o -m1 'Daemon is ready' & tail -f --pid=$! ipfs.log
         ipfs cat /ipfs/QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/readme
     - name: Test with pytest
       run: |
