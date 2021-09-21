@@ -1,3 +1,4 @@
+import io
 import asyncio
 import weakref
 
@@ -168,6 +169,12 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         path = self._strip_protocol(path)
         session = await self.set_session()
         return await self.gateway.file_info(path, session)
+
+    def open(self, path, mode="rb", block_size=None, cache_options=None, **kwargs):
+        if mode != "rb":
+            raise NotImplementedError
+        data = self.cat_file(path)  # load whole chunk into memory
+        return io.BytesIO(data)
 
 
 class GatewayTracer:
