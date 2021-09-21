@@ -1,10 +1,11 @@
 import io
-import asyncio
 import weakref
 
 import aiohttp
 
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
+from fsspec.exceptions import FSTimeoutError
+
 
 class AsyncIPFSGateway:
     resolution = "path"
@@ -34,7 +35,6 @@ class AsyncIPFSGateway:
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
         if self.resolution == "path":
             res = await session.head(self.url + "/ipfs/" + path, trace_request_ctx={'gateway': self.url}, headers=headers)
-            #print(res)
         elif self.resolution == "subdomain":
             raise NotImplementedError("subdomain resolution is not yet implemented")
         else:
@@ -63,8 +63,6 @@ class AsyncIPFSGateway:
         return info
 
     async def cat(self, path, session):
-        info = {"name": path}
-
         if self.resolution == "path":
             res = await session.get(self.url + "/ipfs/" + path, trace_request_ctx={'gateway': self.url})
         elif self.resolution == "subdomain":
@@ -105,6 +103,7 @@ class AsyncIPFSGateway:
 
 async def get_client(**kwargs):
     return aiohttp.ClientSession(**kwargs)
+
 
 class AsyncIPFSFileSystem(AsyncFileSystem):
     sep = "/"

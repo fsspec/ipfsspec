@@ -20,6 +20,7 @@ async def test_different_file_representations(filename, gw_host):
         content = await gw.cat(path, session)
         assert content == REF_CONTENT
 
+
 @pytest.mark.parametrize("gw_host", ["http://127.0.0.1:8080"])
 @pytest.mark.asyncio
 async def test_get_cid_of_folder(gw_host):
@@ -28,9 +29,10 @@ async def test_get_cid_of_folder(gw_host):
         info = await gw.file_info(TEST_ROOT, session)
         assert info["CID"] == TEST_ROOT
 
+
 @pytest.mark.asyncio
 async def test_ls(event_loop):
-    AsyncIPFSFileSystem.clear_instance_cache() # avoid reusing old event loop
+    AsyncIPFSFileSystem.clear_instance_cache()  # avoid reusing old event loop
     fs = AsyncIPFSFileSystem(asynchronous=True, loop=event_loop)
     res = await fs._ls(TEST_ROOT, detail=False)
     assert res == [TEST_ROOT + fs.sep + fn for fn in TEST_FILENAMES]
@@ -38,31 +40,34 @@ async def test_ls(event_loop):
     assert [r["name"] for r in res] == [TEST_ROOT + fs.sep + fn for fn in TEST_FILENAMES]
     assert all([r["size"] == len(REF_CONTENT) for r in res])
 
+
 @pytest.mark.asyncio
 async def test_cat_file(event_loop):
-    AsyncIPFSFileSystem.clear_instance_cache() # avoid reusing old event loop
+    AsyncIPFSFileSystem.clear_instance_cache()  # avoid reusing old event loop
     fs = AsyncIPFSFileSystem(asynchronous=True, loop=event_loop)
     res = await fs._cat_file(TEST_ROOT + "/default")
     assert res == REF_CONTENT
     res = await fs._cat_file(TEST_ROOT + "/default", start=3, end=7)
     assert res == REF_CONTENT[3:7]
 
+
 @pytest.mark.asyncio
 async def test_exists(event_loop):
-    AsyncIPFSFileSystem.clear_instance_cache() # avoid reusing old event loop
+    AsyncIPFSFileSystem.clear_instance_cache()  # avoid reusing old event loop
     fs = AsyncIPFSFileSystem(asynchronous=True, loop=event_loop)
     res = await fs._exists(TEST_ROOT + "/default")
-    assert res == True
+    assert res is True
     res = await fs._exists(TEST_ROOT + "/missing")
-    assert res == False
+    assert res is False
     res = await fs._exists("/missing")
-    assert res == False
+    assert res is False
+
 
 @pytest.mark.asyncio
 async def test_isfile(event_loop):
-    AsyncIPFSFileSystem.clear_instance_cache() # avoid reusing old event loop
+    AsyncIPFSFileSystem.clear_instance_cache()  # avoid reusing old event loop
     fs = AsyncIPFSFileSystem(asynchronous=True, loop=event_loop)
     res = await fs._isfile(TEST_ROOT + "/default")
-    assert res == True
+    assert res is True
     res = await fs._isfile(TEST_ROOT)
-    assert res == False
+    assert res is False

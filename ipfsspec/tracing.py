@@ -1,3 +1,7 @@
+import asyncio
+import aiohttp
+
+
 class GatewayTracer:
     def __init__(self):
         from collections import defaultdict
@@ -8,7 +12,7 @@ class GatewayTracer:
         trace_config.on_request_start.append(self.on_request_start)
         trace_config.on_request_end.append(self.on_request_end)
         return trace_config
-        
+
     async def on_request_start(self, session, trace_config_ctx, params):
         trace_config_ctx.start = asyncio.get_event_loop().time()
 
