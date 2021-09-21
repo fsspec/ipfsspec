@@ -176,6 +176,11 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         data = self.cat_file(path)  # load whole chunk into memory
         return io.BytesIO(data)
 
+    def ukey(self, path):
+        """returns the CID, which is by definition an unchanging identitifer"""
+        return self.info(path)["CID"]
+
+
 
 class GatewayTracer:
     def __init__(self):
