@@ -27,9 +27,10 @@ jobs:
       run: |
         wget https://dist.ipfs.io/go-ipfs/v${{ matrix.ipfs-version }}/go-ipfs_v${{ matrix.ipfs-version }}_linux-amd64.tar.gz
         tar -xvzf go-ipfs_v${{ matrix.ipfs-version }}_linux-amd64.tar.gz
-        cd go-ipfs
+        pushd go-ipfs
         sudo bash install.sh
         sudo sysctl -w net.core.rmem_max=2500000
+        popd
         ipfs --version
         ipfs init --profile server
         ipfs daemon 2>ipfs.log | grep -i -o -m1 'Daemon is ready' & tail -f --pid=$! ipfs.log
