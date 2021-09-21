@@ -45,6 +45,9 @@ class AsyncIPFSGateway:
 
         async with res:
             self._raise_not_found_for_status(res, path)
+            if res.status != 200:
+                # TODO: maybe handle 301 here
+                raise FileNotFoundError(path)
             if "Content-Length" in res.headers:
                 info["size"] = int(res.headers["Content-Length"])
             elif "Content-Range" in res.headers:
@@ -74,6 +77,9 @@ class AsyncIPFSGateway:
 
         async with res:
             self._raise_not_found_for_status(res, path)
+            if res.status != 200:
+                # TODO: maybe handle 301 here
+                raise FileNotFoundError(path)
             return await res.read()
 
     async def ls(self, path, session):
@@ -94,6 +100,8 @@ class AsyncIPFSGateway:
         Raises FileNotFoundError for 404s, otherwise uses raise_for_status.
         """
         if response.status == 404:
+            raise FileNotFoundError(url)
+        elif response.status == 400:
             raise FileNotFoundError(url)
         response.raise_for_status()
 
