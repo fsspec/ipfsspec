@@ -34,6 +34,7 @@ jobs:
         ipfs init --profile server
         ipfs daemon 2>ipfs.log | grep -i -o -m1 'Daemon is ready' & tail -f --pid=$! ipfs.log
         ipfs cat /ipfs/QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/readme
+        ipfs dag import test/testdata.car
     - name: Test with pytest
       run: |
         pip install pytest pytest-asyncio
