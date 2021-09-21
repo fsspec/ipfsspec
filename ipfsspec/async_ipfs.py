@@ -7,10 +7,6 @@ import aiohttp
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 
 class AsyncIPFSGateway:
-    # stats
-    # roundtrip time
-    # troughput
-
     resolution = "path"
 
     def __init__(self, url):
@@ -106,10 +102,6 @@ class AsyncIPFSGateway:
             raise FileNotFoundError(url)
         response.raise_for_status()
 
-# required functions
-# cat
-# ls
-# info
 
 async def get_client(**kwargs):
     return aiohttp.ClientSession(**kwargs)
@@ -179,29 +171,3 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     def ukey(self, path):
         """returns the CID, which is by definition an unchanging identitifer"""
         return self.info(path)["CID"]
-
-
-
-class GatewayTracer:
-    def __init__(self):
-        from collections import defaultdict
-        self.samples = defaultdict(list)
-
-    def make_trace_config(self):
-        trace_config = aiohttp.TraceConfig()
-        trace_config.on_request_start.append(self.on_request_start)
-        trace_config.on_request_end.append(self.on_request_end)
-        return trace_config
-        
-    async def on_request_start(self, session, trace_config_ctx, params):
-        trace_config_ctx.start = asyncio.get_event_loop().time()
-        #print("Starting request")
-
-    async def on_request_end(self, session, trace_config_ctx, params):
-        #print(trace_config_ctx)
-        trace_config_ctx.end = asyncio.get_event_loop().time()
-        elapsed = trace_config_ctx.end - trace_config_ctx.start
-        status = params.response.status
-        gateway = trace_config_ctx.trace_request_ctx.get("gateway", None)
-        self.samples[gateway].append({"url": params.url, "method": params.method, "elapsed": elapsed, "status": status})
-        #print("Ending request")
