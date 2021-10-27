@@ -231,7 +231,11 @@ class IPFSFileSystem(AbstractFileSystem):
         else:
             dag = req("dag/get")
             data = UnixFSData()
-            data.ParseFromString(base64.b64decode(dag["data"]))
+            if "data" in dag:
+                data.ParseFromString(base64.b64decode(dag["data"]))
+            else:
+                rawdata = dag["Data"]["/"]["bytes"]
+                data.ParseFromString(base64.b64decode(rawdata + "=" * (-len(rawdata) % 4)))
 
             size = data.filesize
             if data.Type == data.File:
