@@ -14,7 +14,7 @@ setuptools.setup(
     description="readonly implementation of fsspec for IPFS",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/d70-t/ipfsspec",
+    url="https://github.com/fsspec/ipfsspec",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
