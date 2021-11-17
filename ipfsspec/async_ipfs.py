@@ -105,6 +105,20 @@ async def get_client(**kwargs):
     return aiohttp.ClientSession(**kwargs)
 
 
+DEFAULT_GATEWAY = None
+
+def get_gateway():
+    global DEFAULT_GATEWAY
+    if DEFAULT_GATEWAY is None:
+        use_gateway("http://127.0.0.1:8080")
+    return DEFAULT_GATEWAY
+
+
+def use_gateway(url):
+    global DEFAULT_GATEWAY
+    DEFAULT_GATEWAY = AsyncIPFSGateway(url)
+
+
 class AsyncIPFSFileSystem(AsyncFileSystem):
     sep = "/"
     protocol = "aipfs"
@@ -116,10 +130,12 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         self.client_kwargs = client_kwargs or {}
         self.get_client = get_client
 
-        self.gateway = AsyncIPFSGateway("http://127.0.0.1:8080")
-
         if not asynchronous:
             sync(self.loop, self.set_session)
+
+    @property
+    def gateway(self):
+        return get_gateway()
 
     @staticmethod
     def close_session(loop, session):
