@@ -19,8 +19,37 @@ MAX_RETRIES = 2
 
 
 class IPFSGateway:
-    def __init__(self, url):
+    """
+    CommandLine:
+        xdoctest -m ipfsspec.core IPFSGateway
+
+    Example:
+        >>> # Load content from an IPFS gateway
+        >>> from ipfsspec.core import *  # NOQA
+        >>> import ubelt as ub
+        >>> self = IPFSGateway('https://ipfs.io', protocol='ipfs')
+        >>> content = self.get('QmWt2CjtbvSv7UbKAJ8QhxJkB3vydxWGL47G8cJ7kgLycP')
+        >>> print('content = {!r}'.format(content))
+        >>> res_json = self.apipost('ls', arg='QmWt2CjtbvSv7UbKAJ8QhxJkB3vydxWGL47G8cJ7kgLycP')
+        >>> print('res_json = {}'.format(ub.repr2(res_json, nl=4)))
+        >>> res_json = self.apipost('ls', arg='QmUgbNSRLuTDackyeNuT7T2DERpcaFzSKExgmuqXWhByoa')
+        >>> print('res_json = {}'.format(ub.repr2(res_json, nl=4)))
+
+    Example:
+        >>> # Load content from an IPNS gateway
+        >>> from ipfsspec.core import *  # NOQA
+        >>> import ubelt as ub
+        >>> self = IPFSGateway('https://ipfs.io', protocol='ipns')
+        >>> content = self.get('dist.ipfs.io/go-ipfs/versions')
+        >>> print('content = {!r}'.format(content))
+        >>> res_json = self.apipost('ls', arg='/ipns/dist.ipfs.io/go-ipfs')
+        >>> print('res_json = {}'.format(ub.repr2(res_json, nl=4)))
+        >>> res_json = self.apipost('ls', arg='/ipns/dist.ipfs.io/go-ipfs/versions')
+        >>> print('res_json = {}'.format(ub.repr2(res_json, nl=4)))
+    """
+    def __init__(self, url, protocol='ipfs'):
         self.url = url
+        self.protocol = protocol
         self.state = "unknown"
         self.min_backoff = 1e-9
         self.max_backoff = 5
@@ -34,7 +63,7 @@ class IPFSGateway:
     def get(self, path):
         logger.debug("get %s via %s", path, self.url)
         try:
-            res = self.session.get(self.url + "/ipfs/" + path)
+            res = self.session.get(f"{self.url}/{self.protocol}/{path}")
         except requests.ConnectionError as e:
             logger.debug("Connection Error: %s", e)
             self._backoff()
@@ -125,12 +154,31 @@ def get_default_gateways():
 
 
 class IPFSFileSystem(AbstractFileSystem):
+    """
+    Core IPFS read-only implementation for addressing immutable IPFS CIDs
+
+    CommandLine:
+        xdoctest -m ipfsspec.core IPFSFileSystem
+
+    Example:
+        >>> import fsspec
+        >>> with fsspec.open("ipfs://QmZ4tDuvesekSs4qM5ZBKpXiZGun7S2CYtEZRB3DYXkjGx", "r") as f:
+        >>>     print(f.read())
+        >>> with fsspec.open("ipfs://QmZ4tDuvesekSs4qM5ZBKpXiZGun7S2CYtEZRB3DYXkjGx", "r") as f:
+        >>>     print(f.read())
+        >>> import fsspec
+        >>> self_ipfs = fsspec.filesystem('ipfs')
+        >>> print(self_ipfs.ls('QmZ4tDuvesekSs4qM5ZBKpXiZGun7S2CYtEZRB3DYXkjGx'))
+        >>> print(self_ipfs.ls('QmUgbNSRLuTDackyeNuT7T2DERpcaFzSKExgmuqXWhByoa'))  # /ipns/dist.ipfs.io/go-ipfs
+        >>> self_ipns = fsspec.filesystem('ipns')
+        >>> print(self_ipns.ls('/ipns/dist.ipfs.io/go-ipfs'))  # /ipns/dist.ipfs.io/go-ipfs
+    """
     protocol = "ipfs"
 
     def __init__(self, *args, gateways=None, timeout=10, **kwargs):
-        super(IPFSFileSystem, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         gateways = gateways or get_default_gateways()
-        self._gateways = [IPFSGateway(g) for g in gateways]
+        self._gateways = [IPFSGateway(g, protocol=self.protocol) for g in gateways]
         self.timeout = timeout
 
     def _find_gateway(self):
@@ -165,7 +213,8 @@ class IPFSFileSystem(AbstractFileSystem):
 
     def ls(self, path, detail=True, **kwargs):
         logger.debug("ls on %s", path)
-        res = self._gw_apipost("ls", arg=path)
+        ipfs_ref = f'/{self.protocol}/{path}'
+        res = self._gw_apipost("ls", arg=ipfs_ref)
         links = res["Objects"][0]["Links"]
         types = {1: "directory", 2: "file"}
         if detail:
@@ -208,10 +257,11 @@ class IPFSFileSystem(AbstractFileSystem):
 
     def info(self, path, **kwargs):
         logger.debug("info on %s", path)
+        ipfs_ref = f'/{self.protocol}/{path}'
 
         def req(endpoint):
             try:
-                return self._gw_apipost(endpoint, arg=path)
+                return self._gw_apipost(endpoint, arg=ipfs_ref)
             except HTTPError as e:
                 try:
                     msg = e.response.json()
@@ -244,6 +294,47 @@ class IPFSFileSystem(AbstractFileSystem):
                 ftype = "directory"
 
         return {"name": path, "size": size, "type": ftype}
+
+
+class IPNSFileSystem(IPFSFileSystem):
+    """
+    Read (and maybe write) POC implementation for IPNS
+
+    CommandLine:
+        xdoctest -m ipfsspec.core IPNSFileSystem
+
+    Example:
+        >>> import ipfsspec
+        >>> import fsspec
+        >>> ipns_fs = fsspec.filesystem('ipns')
+        >>> print(ipns_fs.resolve('dist.ipfs.io/go-ipfs/versions'))
+        >>> print(ipns_fs.resolve('dist.ipfs.io/go-ipfs'))
+        >>> print(ipns_fs.resolve('dist.ipfs.io'))
+        >>> print(ipns_fs.ls('dist.ipfs.io/go-ipfs'))
+        >>> print(ipns_fs.ls('dist.ipfs.io'))
+        >>> with fsspec.open("ipns://dist.ipfs.io/go-ipfs/versions", "r") as f:
+        >>>     print(f.read())
+    """
+    protocol = 'ipns'
+
+    def resolve(self, path):
+        """ Get the current CID for the ipns address """
+        logger.debug("resolve on %s", path)
+        ipfs_ref = f'/{self.protocol}/{path}'
+        try:
+            resolved = self._gw_apipost('dag/resolve', arg=ipfs_ref)
+        except HTTPError as e:
+            try:
+                msg = e.response.json()
+            except json.JSONDecodeError:
+                raise IOError("unknown error") from e
+            else:
+                if "Message" in msg:
+                    raise FileNotFoundError(msg["Message"]) from e
+                else:
+                    raise IOError(msg) from e
+        cid = resolved['Cid']['/']
+        return cid
 
 
 class IPFSBufferedFile(AbstractBufferedFile):
