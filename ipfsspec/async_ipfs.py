@@ -7,23 +7,7 @@ from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 from fsspec.exceptions import FSTimeoutError
 
 
-class AsyncIPFSGateway:
-    resolution = "path"
-
-    def __init__(self, url):
-        self.url = url
-
-    async def api_get(self, endpoint, session, **kwargs):
-        return await session.get(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
-
-    async def api_post(self, endpoint, session, **kwargs):
-        return await session.post(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
-
-    async def version(self, session):
-        res = await self.api_get("version", session)
-        res.raise_for_status()
-        return await res.json()
-
+class AsyncIPFSGatewayBase:
     async def stat(self, path, session):
         res = await self.api_get("files/stat", session, arg=path)
         res.raise_for_status()
@@ -33,12 +17,7 @@ class AsyncIPFSGateway:
         info = {"name": path}
 
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
-        if self.resolution == "path":
-            res = await session.head(self.url + "/ipfs/" + path, trace_request_ctx={'gateway': self.url}, headers=headers)
-        elif self.resolution == "subdomain":
-            raise NotImplementedError("subdomain resolution is not yet implemented")
-        else:
-            raise NotImplementedError(f"'{self.resolution}' resolution is not known")
+        res = await self.cid_head(path, session, headers=headers)
 
         async with res:
             self._raise_not_found_for_status(res, path)
@@ -63,17 +42,10 @@ class AsyncIPFSGateway:
         return info
 
     async def cat(self, path, session):
-        if self.resolution == "path":
-            res = await session.get(self.url + "/ipfs/" + path, trace_request_ctx={'gateway': self.url})
-        elif self.resolution == "subdomain":
-            raise NotImplementedError("subdomain resolution is not yet implemented")
-        else:
-            raise NotImplementedError(f"'{self.resolution}' resolution is not known")
-
+        res = await self.cid_get(path, session)
         async with res:
             self._raise_not_found_for_status(res, path)
             if res.status != 200:
-                # TODO: maybe handle 301 here
                 raise FileNotFoundError(path)
             return await res.read()
 
@@ -99,6 +71,41 @@ class AsyncIPFSGateway:
         elif response.status == 400:
             raise FileNotFoundError(url)
         response.raise_for_status()
+
+
+class AsyncIPFSGateway(AsyncIPFSGatewayBase):
+    resolution = "path"
+
+    def __init__(self, url):
+        self.url = url
+
+    async def api_get(self, endpoint, session, **kwargs):
+        return await session.get(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
+
+    async def api_post(self, endpoint, session, **kwargs):
+        return await session.post(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
+
+    async def _cid_req(self, method, path, headers=None, **kwargs):
+        headers = headers or {}
+        if self.resolution == "path":
+            res = await method(self.url + "/ipfs/" + path, trace_request_ctx={'gateway': self.url}, headers=headers)
+        elif self.resolution == "subdomain":
+            raise NotImplementedError("subdomain resolution is not yet implemented")
+        else:
+            raise NotImplementedError(f"'{self.resolution}' resolution is not known")
+        # TODO: maybe handle 301 here
+        return res
+
+    async def cid_head(self, path, session, headers=None, **kwargs):
+        return await self._cid_req(session.head, path, headers=headers, **kwargs)
+
+    async def cid_get(self, path, session, headers=None, **kwargs):
+        return await self._cid_req(session.get, path, headers=headers, **kwargs)
+
+    async def version(self, session):
+        res = await self.api_get("version", session)
+        res.raise_for_status()
+        return await res.json()
 
 
 async def get_client(**kwargs):
