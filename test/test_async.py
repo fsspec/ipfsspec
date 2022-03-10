@@ -15,24 +15,24 @@ async def session():
 @pytest.mark.parametrize("gw_host", ["http://127.0.0.1:8080"])
 @pytest.mark.parametrize("filename", TEST_FILENAMES)
 @pytest.mark.asyncio
-async def test_different_file_representations(filename, gw_host):
+async def test_different_file_representations(filename, gw_host, session):
     gw = AsyncIPFSGateway(gw_host)
-    async with aiohttp.ClientSession() as session:
-        path = TEST_ROOT + "/" + filename
-        info = await gw.file_info(path, session)
-        assert info["size"] == len(REF_CONTENT)
-        assert info["type"] == "file"
-        content = await gw.cat(path, session)
-        assert content == REF_CONTENT
+
+    path = TEST_ROOT + "/" + filename
+    info = await gw.file_info(path, session)
+    assert info["size"] == len(REF_CONTENT)
+    assert info["type"] == "file"
+    content = await gw.cat(path, session)
+    assert content == REF_CONTENT
 
 
 @pytest.mark.parametrize("gw_host", ["http://127.0.0.1:8080"])
 @pytest.mark.asyncio
-async def test_get_cid_of_folder(gw_host):
+async def test_get_cid_of_folder(gw_host, session):
     gw = AsyncIPFSGateway(gw_host)
-    async with aiohttp.ClientSession() as session:
-        info = await gw.file_info(TEST_ROOT, session)
-        assert info["CID"] == TEST_ROOT
+
+    info = await gw.file_info(TEST_ROOT, session)
+    assert info["CID"] == TEST_ROOT
 
 
 @pytest.mark.parametrize("gw_hosts", [
