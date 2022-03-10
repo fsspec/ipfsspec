@@ -6,6 +6,8 @@ import aiohttp
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 from fsspec.exceptions import FSTimeoutError
 
+from .core import get_default_gateways
+
 
 class AsyncIPFSGatewayBase:
     async def stat(self, path, session):
@@ -108,6 +110,33 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         return await res.json()
 
 
+class MultiGateway(AsyncIPFSGatewayBase):
+    def __init__(self, gws):
+        self.gws = gws
+
+    async def _gw_op(self, op):
+        exception = None
+        for gw in self.gws:
+            try:
+                return await op(gw)
+            except IOError as e:
+                exception = e
+                continue
+        raise exception
+
+    async def api_get(self, endpoint, session, **kwargs):
+        return await self._gw_op(lambda gw: gw.api_get(endpoint, session, **kwargs))
+
+    async def api_post(self, endpoint, session, **kwargs):
+        return await self._gw_op(lambda gw: gw.api_post(endpoint, session, **kwargs))
+
+    async def cid_head(self, path, session, headers=None, **kwargs):
+        return await self._gw_op(lambda gw: gw.cid_head(path, session, headers=headers, **kwargs))
+
+    async def cid_get(self, path, session, headers=None, **kwargs):
+        return await self._gw_op(lambda gw: gw.cid_get(path, session, headers=headers, **kwargs))
+
+
 async def get_client(**kwargs):
     return aiohttp.ClientSession(**kwargs)
 
@@ -117,13 +146,16 @@ DEFAULT_GATEWAY = None
 def get_gateway():
     global DEFAULT_GATEWAY
     if DEFAULT_GATEWAY is None:
-        use_gateway("http://127.0.0.1:8080")
+        use_gateway(*get_default_gateways())
     return DEFAULT_GATEWAY
 
 
-def use_gateway(url):
+def use_gateway(*urls):
     global DEFAULT_GATEWAY
-    DEFAULT_GATEWAY = AsyncIPFSGateway(url)
+    if len(urls) == 1:
+        DEFAULT_GATEWAY = AsyncIPFSGateway(urls[0])
+    else:
+        DEFAULT_GATEWAY = MultiGateway([AsyncIPFSGateway(url) for url in urls])
 
 
 class AsyncIPFSFileSystem(AsyncFileSystem):
