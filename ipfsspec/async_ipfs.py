@@ -10,6 +10,10 @@ from fsspec.exceptions import FSTimeoutError
 
 from .core import get_default_gateways
 
+import logging
+
+logger = logging.getLogger("ipfsspec")
+
 
 class RequestsTooQuick(OSError):
     def __init__(self, retry_after=None):
@@ -128,6 +132,7 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
 
 class GatewayState:
     def __init__(self):
+        self.reachable = True
         self.next_request_time = 0
         self.backoff_time = 0
         self.start_backoff = 1e-5
@@ -141,14 +146,25 @@ class GatewayState:
             self.backoff_time = self.start_backoff
         else:
             self.backoff_time *= 2
+        self.reachable = True
         self.schedule_next()
 
-    def speedup(self):
-        self.backoff_time = max(0, self.backoff_time * 0.9)
+    def speedup(self, not_below=0):
+        did_speed_up = False
+        if self.backoff_time > not_below:
+            self.backoff_time *= 0.9
+            did_speed_up = True
+        self.reachable = True
         self.schedule_next()
+        return did_speed_up
 
     def broken(self):
         self.backoff_time = self.max_backoff
+        self.reachable = False
+        self.schedule_next()
+
+    def trying_to_reach(self):
+        self.next_request_time = time.monotonic() + 1
 
 
 class MultiGateway(AsyncIPFSGatewayBase):
@@ -161,19 +177,25 @@ class MultiGateway(AsyncIPFSGatewayBase):
         for _ in range(self.max_backoff_rounds):
             now = time.monotonic()
             for state, gw in sorted(self.gws, key=lambda x: max(now, x[0].next_request_time)):
+                if not state.reachable:
+                    state.trying_to_reach()
                 now = time.monotonic()
                 if state.next_request_time > now:
                     await asyncio.sleep(state.next_request_time - now)
+                logger.debug("tring %s", gw)
                 try:
                     res = await op(gw)
-                    state.speedup()
+                    if state.speedup(time.monotonic() - now):
+                        logger.debug("%s speedup", gw)
                     return res
                 except RequestsTooQuick as e:
                     state.backoff()
+                    logger.debug("%s backoff", gw)
                     break
                 except IOError as e:
                     exception = e
                     state.broken()
+                    logger.debug("%s broken", gw)
                     continue
             else:
                 raise exception
@@ -199,6 +221,8 @@ class MultiGateway(AsyncIPFSGatewayBase):
 
 
 async def get_client(**kwargs):
+    timeout = aiohttp.ClientTimeout(sock_connect=1, sock_read=5)
+    kwags = {"timeout": timeout, **kwargs}
     return aiohttp.ClientSession(**kwargs)
 
 
