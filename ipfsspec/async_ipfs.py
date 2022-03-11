@@ -83,12 +83,6 @@ class AsyncIPFSGatewayBase:
             raise FileNotFoundError(url)
         elif response.status == 400:
             raise FileNotFoundError(url)
-        elif response.status == 429:
-            if "retry-after" in response.headers:
-                retry_after = int(response.headers["retry-after"])
-            else:
-                retry_after = None
-            raise RequestsTooQuick(retry_after)
         response.raise_for_status()
 
 
@@ -99,10 +93,14 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         self.url = url
 
     async def api_get(self, endpoint, session, **kwargs):
-        return await session.get(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
+        res = await session.get(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
+        self._raise_requests_too_quick(res)
+        return res
 
     async def api_post(self, endpoint, session, **kwargs):
-        return await session.post(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
+        res = await session.post(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
+        self._raise_requests_too_quick(res)
+        return res
 
     async def _cid_req(self, method, path, headers=None, **kwargs):
         headers = headers or {}
@@ -113,6 +111,7 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         else:
             raise NotImplementedError(f"'{self.resolution}' resolution is not known")
         # TODO: maybe handle 301 here
+        self._raise_requests_too_quick(res)
         return res
 
     async def cid_head(self, path, session, headers=None, **kwargs):
@@ -125,6 +124,15 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         res = await self.api_get("version", session)
         res.raise_for_status()
         return await res.json()
+
+    @staticmethod
+    def _raise_requests_too_quick(response):
+        if response.status == 429:
+            if "retry-after" in response.headers:
+                retry_after = int(response.headers["retry-after"])
+            else:
+                retry_after = None
+            raise RequestsTooQuick(retry_after)
 
     def __str__(self):
         return f"GW({self.url})"
