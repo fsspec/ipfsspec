@@ -192,6 +192,12 @@ class MultiGateway(AsyncIPFSGatewayBase):
                     state.backoff()
                     logger.debug("%s backoff", gw)
                     break
+                except aiohttp.ClientResponseError as e:
+                    # for now, handle client response errors also as backoff
+                    # maybe someone will come up with a better solution some times
+                    state.backoff()
+                    logger.debug("%s backoff due to response %d", gw, e.status)
+                    break
                 except IOError as e:
                     exception = e
                     state.broken()
