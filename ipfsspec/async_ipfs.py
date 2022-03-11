@@ -188,11 +188,14 @@ class MultiGateway(AsyncIPFSGatewayBase):
     async def _gw_op(self, op):
         for _ in range(self.max_backoff_rounds):
             for state, gw in self._gws_in_priority_order:
+                not_before = state.next_request_time
                 if not state.reachable:
                     state.trying_to_reach()
+                else:
+                    state.schedule_next()
                 now = time.monotonic()
-                if state.next_request_time > now:
-                    await asyncio.sleep(state.next_request_time - now)
+                if not_before > now:
+                    await asyncio.sleep(not_before - now)
                 logger.debug("tring %s", gw)
                 try:
                     res = await op(gw)
