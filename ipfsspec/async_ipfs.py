@@ -1,6 +1,8 @@
 import io
+import time
 import weakref
 
+import asyncio
 import aiohttp
 
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
@@ -9,10 +11,15 @@ from fsspec.exceptions import FSTimeoutError
 from .core import get_default_gateways
 
 
+class RequestsTooQuick(OSError):
+    def __init__(self, retry_after=None):
+        self.retry_after = retry_after
+
+
 class AsyncIPFSGatewayBase:
     async def stat(self, path, session):
         res = await self.api_get("files/stat", session, arg=path)
-        res.raise_for_status()
+        self._raise_not_found_for_status(res, path)
         return await res.json()
 
     async def file_info(self, path, session):
@@ -72,6 +79,12 @@ class AsyncIPFSGatewayBase:
             raise FileNotFoundError(url)
         elif response.status == 400:
             raise FileNotFoundError(url)
+        elif response.status == 429:
+            if "retry-after" in response.headers:
+                retry_after = int(response.headers["retry-after"])
+            else:
+                retry_after = None
+            raise RequestsTooQuick(retry_after)
         response.raise_for_status()
 
 
@@ -109,20 +122,62 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         res.raise_for_status()
         return await res.json()
 
+    def __str__(self):
+        return f"GW({self.url})"
+
+
+class GatewayState:
+    def __init__(self):
+        self.next_request_time = 0
+        self.backoff_time = 0
+        self.start_backoff = 1e-5
+        self.max_backoff = 5
+
+    def schedule_next(self):
+        self.next_request_time = time.monotonic() + self.backoff_time
+
+    def backoff(self):
+        if self.backoff_time < self.start_backoff:
+            self.backoff_time = self.start_backoff
+        else:
+            self.backoff_time *= 2
+        self.schedule_next()
+
+    def speedup(self):
+        self.backoff_time = max(0, self.backoff_time * 0.9)
+        self.schedule_next()
+
+    def broken(self):
+        self.backoff_time = self.max_backoff
+
 
 class MultiGateway(AsyncIPFSGatewayBase):
-    def __init__(self, gws):
-        self.gws = gws
+    def __init__(self, gws, max_backoff_rounds=50):
+        self.gws = [(GatewayState(), gw) for gw in gws]
+        self.max_backoff_rounds = max_backoff_rounds
 
     async def _gw_op(self, op):
         exception = None
-        for gw in self.gws:
-            try:
-                return await op(gw)
-            except IOError as e:
-                exception = e
-                continue
-        raise exception
+        for _ in range(self.max_backoff_rounds):
+            now = time.monotonic()
+            for state, gw in sorted(self.gws, key=lambda x: max(now, x[0].next_request_time)):
+                now = time.monotonic()
+                if state.next_request_time > now:
+                    await asyncio.sleep(state.next_request_time - now)
+                try:
+                    res = await op(gw)
+                    state.speedup()
+                    return res
+                except RequestsTooQuick as e:
+                    state.backoff()
+                    break
+                except IOError as e:
+                    exception = e
+                    state.broken()
+                    continue
+            else:
+                raise exception
+        raise RequestsTooQuick()
 
     async def api_get(self, endpoint, session, **kwargs):
         return await self._gw_op(lambda gw: gw.api_get(endpoint, session, **kwargs))
@@ -135,6 +190,12 @@ class MultiGateway(AsyncIPFSGatewayBase):
 
     async def cid_get(self, path, session, headers=None, **kwargs):
         return await self._gw_op(lambda gw: gw.cid_get(path, session, headers=headers, **kwargs))
+
+    def state_report(self):
+        return "\n".join(f"{s.next_request_time}, {gw}" for s, gw in self.gws)
+
+    def __str__(self):
+        return "Multi-GW(" + ", ".join(str(gw) for _, gw in self.gws) + ")"
 
 
 async def get_client(**kwargs):
