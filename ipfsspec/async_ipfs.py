@@ -227,6 +227,12 @@ class MultiGateway(AsyncIPFSGatewayBase):
     async def cid_get(self, path, session, headers=None, **kwargs):
         return await self._gw_op(lambda gw: gw.cid_get(path, session, headers=headers, **kwargs))
 
+    async def cat(self, path, session):
+        return await self._gw_op(lambda gw: gw.cat(path, session))
+
+    async def ls(self, path, session):
+        return await self._gw_op(lambda gw: gw.ls(path, session))
+
     def state_report(self):
         return "\n".join(f"{s.next_request_time}, {gw}" for s, gw in self.gws)
 
