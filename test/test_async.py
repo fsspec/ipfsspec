@@ -6,12 +6,14 @@ TEST_ROOT = "QmW3CrGFuFyF3VH1wvrap4Jend5NRTgtESDjuQ7QhHD5dd"
 REF_CONTENT = b'ipfsspec test data'
 TEST_FILENAMES = ["default", "multi", "raw", "raw_multi", "write"]
 
+
 @pytest.fixture
 async def session():
     async with aiohttp.ClientSession() as session:
         yield session
 
 
+@pytest.mark.local_gw
 @pytest.mark.parametrize("gw_host", ["http://127.0.0.1:8080"])
 @pytest.mark.parametrize("filename", TEST_FILENAMES)
 @pytest.mark.asyncio
@@ -26,6 +28,7 @@ async def test_different_file_representations(filename, gw_host, session):
     assert content == REF_CONTENT
 
 
+@pytest.mark.local_gw
 @pytest.mark.parametrize("gw_host", ["http://127.0.0.1:8080"])
 @pytest.mark.asyncio
 async def test_get_cid_of_folder(gw_host, session):
@@ -35,6 +38,7 @@ async def test_get_cid_of_folder(gw_host, session):
     assert info["CID"] == TEST_ROOT
 
 
+@pytest.mark.local_gw
 @pytest.mark.parametrize("gw_hosts", [
     ["http://127.0.0.1:8080"],
     ["http://127.0.0.1:9999", "http://127.0.0.1:8080"],

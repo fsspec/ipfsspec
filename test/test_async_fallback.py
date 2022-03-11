@@ -3,6 +3,7 @@ import time
 
 from ipfsspec.async_ipfs import MultiGateway, AsyncIPFSGatewayBase, RequestsTooQuick
 
+
 class MockGateway(AsyncIPFSGatewayBase):
     def __init__(self, objects):
         self.objects = objects
@@ -12,6 +13,7 @@ class MockGateway(AsyncIPFSGatewayBase):
             return self.objects[path]
         except KeyError:
             raise FileNotFoundError(path)
+
 
 class RateLimitedMockGateway(AsyncIPFSGatewayBase):
     def __init__(self, max_rate, base, report_time=True):

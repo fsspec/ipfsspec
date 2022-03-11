@@ -3,7 +3,6 @@ import json
 import base64
 from mockserver import mock_servers
 
-import fsspec
 from ipfsspec.core import IPFSFileSystem
 from ipfsspec.unixfs_pb2 import Data as UnixFSData
 

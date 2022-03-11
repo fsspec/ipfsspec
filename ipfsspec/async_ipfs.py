@@ -188,7 +188,7 @@ class MultiGateway(AsyncIPFSGatewayBase):
                     if state.speedup(time.monotonic() - now):
                         logger.debug("%s speedup", gw)
                     return res
-                except RequestsTooQuick as e:
+                except RequestsTooQuick:
                     state.backoff()
                     logger.debug("%s backoff", gw)
                     break
@@ -222,11 +222,12 @@ class MultiGateway(AsyncIPFSGatewayBase):
 
 async def get_client(**kwargs):
     timeout = aiohttp.ClientTimeout(sock_connect=1, sock_read=5)
-    kwags = {"timeout": timeout, **kwargs}
+    kwargs = {"timeout": timeout, **kwargs}
     return aiohttp.ClientSession(**kwargs)
 
 
 DEFAULT_GATEWAY = None
+
 
 def get_gateway():
     global DEFAULT_GATEWAY
