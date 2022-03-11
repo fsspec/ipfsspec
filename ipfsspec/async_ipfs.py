@@ -172,11 +172,14 @@ class MultiGateway(AsyncIPFSGatewayBase):
         self.gws = [(GatewayState(), gw) for gw in gws]
         self.max_backoff_rounds = max_backoff_rounds
 
+    @property
+    def _gws_in_priority_order(self):
+        now = time.monotonic()
+        return sorted(self.gws, key=lambda x: max(now, x[0].next_request_time))
+
     async def _gw_op(self, op):
-        exception = None
         for _ in range(self.max_backoff_rounds):
-            now = time.monotonic()
-            for state, gw in sorted(self.gws, key=lambda x: max(now, x[0].next_request_time)):
+            for state, gw in self._gws_in_priority_order:
                 if not state.reachable:
                     state.trying_to_reach()
                 now = time.monotonic()
@@ -188,19 +191,9 @@ class MultiGateway(AsyncIPFSGatewayBase):
                     if state.speedup(time.monotonic() - now):
                         logger.debug("%s speedup", gw)
                     return res
-                except RequestsTooQuick:
+                except (RequestsTooQuick, aiohttp.ClientResponseError, asyncio.TimeoutError) as e:
                     state.backoff()
-                    logger.debug("%s backoff", gw)
-                    break
-                except asyncio.TimeoutError:
-                    state.backoff()
-                    logger.debug("%s backoff due to timeout", gw)
-                    break
-                except aiohttp.ClientResponseError as e:
-                    # for now, handle client response errors also as backoff
-                    # maybe someone will come up with a better solution some times
-                    state.backoff()
-                    logger.debug("%s backoff due to response %d", gw, e.status)
+                    logger.debug("%s backoff %s", gw, e)
                     break
                 except IOError as e:
                     exception = e
