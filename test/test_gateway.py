@@ -4,6 +4,7 @@ import base64
 from mockserver import mock_servers
 
 import fsspec
+from ipfsspec.core import IPFSFileSystem
 from ipfsspec.unixfs_pb2 import Data as UnixFSData
 
 from http.server import BaseHTTPRequestHandler
@@ -117,7 +118,7 @@ def test_backoff():
             {"QmTz3oc4gdpRMKP2sdGUPZTAGRngqjsi99BPoztyP53JMM": "bar"}),
     ]
     with mock_servers(handlers) as gateways:
-        fs = fsspec.filesystem("ipfs", gateways=gateways, timeout=1)
+        fs = IPFSFileSystem(gateways=gateways, timeout=1)
         for _ in range(50):
             with fs.open("QmTz3oc4gdpRMKP2sdGUPZTAGRngqjsi99BPoztyP53JMM") as f:
                 assert f.read().decode("utf-8") == "bar"
@@ -134,7 +135,7 @@ def test_backoff_use_faster_server():
             {"QmaBoSxocSYTx1WLw55NJ2rEkvt5WTJxxuUSCWtabHurqE": "zapp"}),
     ]
     with mock_servers(handlers) as gateways:
-        fs = fsspec.filesystem("ipfs", gateways=gateways, timeout=1)
+        fs = IPFSFileSystem(gateways=gateways, timeout=1)
         for _ in range(100):
             with fs.open("QmaBoSxocSYTx1WLw55NJ2rEkvt5WTJxxuUSCWtabHurqE") as f:
                 assert f.read().decode("utf-8") == "zapp"
@@ -149,6 +150,6 @@ def test_fallback_if_incomplete():
             {"QmWLdkp93sNxGRjnFHPaYg8tCQ35NBY3XPn6KiETd3Z4WR": "baz"}),
     ]
     with mock_servers(handlers) as gateways:
-        fs = fsspec.filesystem("ipfs", gateways=gateways, timeout=1)
+        fs = IPFSFileSystem(gateways=gateways, timeout=1)
         with fs.open("QmWLdkp93sNxGRjnFHPaYg8tCQ35NBY3XPn6KiETd3Z4WR") as f:
             assert f.read().decode("utf-8") == "baz"

@@ -31,7 +31,7 @@ setuptools.setup(
     ],
     entry_points={
         'fsspec.specs': [
-            'ipfs=ipfsspec.IPFSFileSystem',
+            'ipfs=ipfsspec.AsyncIPFSFileSystem',
         ],
     },
 )

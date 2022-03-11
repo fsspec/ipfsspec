@@ -221,7 +221,7 @@ def use_gateway(*urls):
 
 class AsyncIPFSFileSystem(AsyncFileSystem):
     sep = "/"
-    protocol = "aipfs"
+    protocol = "ipfs"
 
     def __init__(self, asynchronous=False, loop=None, client_kwargs=None, **storage_options):
         super().__init__(self, asynchronous=asynchronous, loop=loop, **storage_options)
