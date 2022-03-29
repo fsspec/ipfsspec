@@ -258,10 +258,7 @@ def get_gateway():
 
 def use_gateway(*urls):
     global DEFAULT_GATEWAY
-    if len(urls) == 1:
-        DEFAULT_GATEWAY = AsyncIPFSGateway(urls[0])
-    else:
-        DEFAULT_GATEWAY = MultiGateway([AsyncIPFSGateway(url) for url in urls])
+    DEFAULT_GATEWAY = MultiGateway([AsyncIPFSGateway(url) for url in urls])
 
 
 class AsyncIPFSFileSystem(AsyncFileSystem):
