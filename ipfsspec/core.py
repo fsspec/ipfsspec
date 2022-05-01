@@ -180,7 +180,13 @@ class IPFSFileSystem(AbstractFileSystem):
     @functools.lru_cache()
     def cat_file(self, path):
         logger.debug("cat on %s", path)
-        data = self._gw_get(path)
+        try:
+            data = self._gw_get(path)
+        except HTTPError as e:
+            if e.response.status_code == 404:
+                raise FileNotFoundError(e.response.text)
+            else:
+                raise e
         if logger.isEnabledFor(logging.DEBUG):
             h = hashlib.sha256(data).hexdigest()
             logger.debug("sha256 of received resouce at %s: %s", path, h)
