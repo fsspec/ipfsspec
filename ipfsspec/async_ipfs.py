@@ -202,6 +202,8 @@ class MultiGateway(AsyncIPFSGatewayBase):
                     if state.speedup(time.monotonic() - now):
                         logger.debug("%s speedup", gw)
                     return res
+                except FileNotFoundError:  # early exit if object doesn't exist
+                    raise
                 except (RequestsTooQuick, aiohttp.ClientResponseError, asyncio.TimeoutError) as e:
                     state.backoff()
                     logger.debug("%s backoff %s", gw, e)
