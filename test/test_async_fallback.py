@@ -7,8 +7,10 @@ from ipfsspec.async_ipfs import MultiGateway, AsyncIPFSGatewayBase, RequestsTooQ
 class MockGateway(AsyncIPFSGatewayBase):
     def __init__(self, objects):
         self.objects = objects
+        self.request_count = 0
 
     async def cid_get(self, path, session, headers=None, **kwargs):
+        self.request_count += 1
         try:
             return self.objects[path]
         except KeyError:
@@ -71,3 +73,19 @@ async def test_backoff_use_faster_server(session):
         obj = await gw.cid_get("QmTz3oc4gdpRMKP2sdGUPZTAGRngqjsi99BPoztyP53JMM", session)
         assert obj == "zapp"
     assert gws[0].request_count < gws[1].request_count
+
+
+@pytest.mark.asyncio
+async def test_stop_on_not_found(session):
+    objects = {
+        "QmTz3oc4gdpRMKP2sdGUPZTAGRngqjsi99BPoztyP53JMM": "zapp",
+    }
+    gws = [
+        MockGateway(objects),
+        MockGateway(objects)
+    ]
+    gw = MultiGateway(gws)
+
+    with pytest.raises(FileNotFoundError):
+        await gw.cid_get("QmTz3oc4gdpRMKP2sdGUPZTAGRngqjsi99BPoztyP53JMM/not_there", session)
+    assert gws[1].request_count == 0
