@@ -8,7 +8,7 @@ import aiohttp
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 from fsspec.exceptions import FSTimeoutError
 
-from .core import get_default_gateways
+from .utils import get_default_gateways
 
 import logging
 

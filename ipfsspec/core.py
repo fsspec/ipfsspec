@@ -1,15 +1,11 @@
-from .unixfs_pb2 import Data as UnixFSData
-import cid
+from .utils import get_default_gateways
 
 from fsspec.spec import AbstractFileSystem, AbstractBufferedFile
 import requests
 from requests.exceptions import HTTPError
 import hashlib
-import base64
 import functools
 import time
-import json
-import os
 
 import logging
 
@@ -58,6 +54,22 @@ class IPFSGateway:
             self._speedup()
         res.raise_for_status()
         return res.content
+
+    def head(self, path, headers=None):
+        logger.debug("head %s via %s", path, self.url, headers=headers or {})
+        try:
+            res = self.session.get(self.url + "/ipfs/" + path)
+        except requests.ConnectionError as e:
+            logger.debug("Connection Error: %s", e)
+            self._backoff()
+            return None
+        if res.status_code == 429:  # too many requests
+            self._backoff()
+            return None
+        elif res.status_code == 200:
+            self._speedup()
+        res.raise_for_status()
+        return res.headers
 
     def apipost(self, call, **kwargs):
         logger.debug("post %s via %s", call, self.url)
@@ -108,22 +120,6 @@ class IPFSGateway:
             return (self.state, None)
 
 
-GATEWAYS = [
-    "http://127.0.0.1:8080",
-    "https://ipfs.io",
-    "https://gateway.pinata.cloud",
-    "https://cloudflare-ipfs.com",
-    "https://dweb.link",
-]
-
-
-def get_default_gateways():
-    try:
-        return os.environ["IPFSSPEC_GATEWAYS"].split()
-    except KeyError:
-        return GATEWAYS
-
-
 class IPFSFileSystem(AbstractFileSystem):
     protocol = "ipfs"
 
@@ -159,6 +155,9 @@ class IPFSFileSystem(AbstractFileSystem):
 
     def _gw_get(self, path):
         return self._run_on_any_gateway(lambda gw: gw.get(path))
+
+    def _gw_head(self, path, headers=None):
+        return self._run_on_any_gateway(lambda gw: gw.head(path, headers))
 
     def _gw_apipost(self, call, **kwargs):
         return self._run_on_any_gateway(lambda gw: gw.apipost(call, **kwargs))
@@ -213,43 +212,28 @@ class IPFSFileSystem(AbstractFileSystem):
         )
 
     def info(self, path, **kwargs):
+        path = self._strip_protocol(path)
         logger.debug("info on %s", path)
 
-        def req(endpoint):
-            try:
-                return self._gw_apipost(endpoint, arg=path)
-            except HTTPError as e:
-                try:
-                    msg = e.response.json()
-                except json.JSONDecodeError:
-                    raise IOError("unknown error") from e
-                else:
-                    if "Message" in msg:
-                        raise FileNotFoundError(msg["Message"]) from e
-                    else:
-                        raise IOError(msg) from e
+        headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
+        response_headers = self._gw_head(path, headers)
 
-        stat = req("object/stat")
-        c = cid.from_string(stat["Hash"])
-        if c.codec == "raw":
-            size = stat["DataSize"]
-            ftype = "file"
-        else:
-            dag = req("dag/get")
-            data = UnixFSData()
-            if "data" in dag:
-                data.ParseFromString(base64.b64decode(dag["data"]))
+        info = {"name": path}
+        if "Content-Length" in response_headers:
+            info["size"] = int(response_headers["Content-Length"])
+        elif "Content-Range" in response_headers:
+            info["size"] = int(response_headers["Content-Range"].split("/")[1])
+
+        if "ETag" in response_headers:
+            etag = response_headers["ETag"].strip("\"")
+            info["ETag"] = etag
+            if etag.startswith("DirIndex"):
+                info["type"] = "directory"
+                info["CID"] = etag.split("-")[-1]
             else:
-                rawdata = dag["Data"]["/"]["bytes"]
-                data.ParseFromString(base64.b64decode(rawdata + "=" * (-len(rawdata) % 4)))
-
-            size = data.filesize
-            if data.Type == data.File:
-                ftype = "file"
-            else:
-                ftype = "directory"
-
-        return {"name": path, "size": size, "type": ftype}
+                info["type"] = "file"
+                info["CID"] = etag
+        return info
 
 
 class IPFSBufferedFile(AbstractBufferedFile):

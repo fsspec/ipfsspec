@@ -1,10 +1,8 @@
 import datetime
 import json
-import base64
 from mockserver import mock_servers
 
 from ipfsspec.core import IPFSFileSystem
-from ipfsspec.unixfs_pb2 import Data as UnixFSData
 
 from http.server import BaseHTTPRequestHandler
 import urllib.parse
@@ -19,21 +17,26 @@ class BaseIPFSHandler(BaseHTTPRequestHandler):
     def object_size(self, oid):
         return len(self.objects[oid].encode("utf-8"))
 
-    def do_GET(self):
+    def do_GET(self, is_head=False):
         if self.abort_before_request():
             return
         if self.path == "/api/v0/version":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"version": "0.1_test"}, ensure_ascii=False).encode("utf-8"))
+            if not is_head:
+                self.wfile.write(json.dumps({"version": "0.1_test"}, ensure_ascii=False).encode("utf-8"))
         elif self.path.startswith("/ipfs/"):
             oid = self.path[6:]
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(self.object_size(oid)))
             self.end_headers()
-            self.wfile.write(self.objects[oid].encode("utf-8"))
+            if not is_head:
+                self.wfile.write(self.objects[oid].encode("utf-8"))
+
+    def do_HEAD(self):
+        return self.do_GET(is_head=True)
 
     def do_POST(self):
         if self.abort_before_request():
@@ -43,16 +46,6 @@ class BaseIPFSHandler(BaseHTTPRequestHandler):
         if urlparts.path == "/api/v0/object/stat":
             oid = query.get("arg", [])[0]
             res = {"Hash": oid, "NumLinks": 0, "DataSize": self.object_size(oid)}
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
-        if urlparts.path == "/api/v0/dag/get":
-            oid = query.get("arg", [])[0]
-            d = UnixFSData()
-            d.Type = d.File
-            d.filesize = self.object_size(oid)
-            res = {"data": base64.b64encode(d.SerializeToString()).decode("ascii"), "links": []}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
