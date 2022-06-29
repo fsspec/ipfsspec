@@ -24,6 +24,7 @@ setuptools.setup(
     python_requires='>=3',
     install_requires=[
         "fsspec>=0.9.0",
+        'ipfshttpclient',
         "requests",
         "aiohttp",
     ],

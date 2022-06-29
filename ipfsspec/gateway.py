@@ -1,26 +1,37 @@
 import io
 import time
 import weakref
+import typing as ty
 
 import asyncio
 import aiohttp
-
-from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
-from fsspec.exceptions import FSTimeoutError
-
-from .utils import get_default_gateways
-
 import logging
+import ipfshttpclient 
 
 logger = logging.getLogger("ipfsspec")
-
 
 class RequestsTooQuick(OSError):
     def __init__(self, retry_after=None):
         self.retry_after = retry_after
 
+def get_default_gateways():
+    try:
+        return os.environ["IPFSSPEC_GATEWAYS"].split()
+    except KeyError:
+        return GATEWAYS
+
 
 class AsyncIPFSGatewayBase:
+
+    DEFAULT_GATEWAYS = [
+    "http://127.0.0.1:8080",
+    # "https://ipfs.io",
+    # "https://gateway.pinata.cloud",
+    # "https://cloudflare-ipfs.com",
+    # "https://dweb.link",
+    ]
+
+
     async def stat(self, path, session):
         res = await self.api_get("files/stat", session, arg=path)
         self._raise_not_found_for_status(res, path)
@@ -55,7 +66,17 @@ class AsyncIPFSGatewayBase:
         return info
 
     async def cat(self, path, session):
-        res = await self.cid_get(path, session)
+
+        res = await self.api_get(endpoint='cat', session=session, arg=path)
+        async with res:
+            self._raise_not_found_for_status(res, path)
+            if res.status != 200:
+                raise FileNotFoundError(path)
+            return await res.read()
+
+    async def add(self, session, **kwargs):
+        api_kwargs = {'arg':path}
+        res = await self.api_get(endpoint='add', session=session, **api_kwargs)
         async with res:
             self._raise_not_found_for_status(res, path)
             if res.status != 200:
@@ -63,7 +84,7 @@ class AsyncIPFSGatewayBase:
             return await res.read()
 
     async def ls(self, path, session):
-        res = await self.api_get("ls", session, arg=path)
+        res = await self.api_get(endpoint="ls", session=session, arg=path)
         self._raise_not_found_for_status(res, path)
         resdata = await res.json()
         types = {1: "directory", 2: "file"}
@@ -87,6 +108,8 @@ class AsyncIPFSGatewayBase:
 
 
 class AsyncIPFSGateway(AsyncIPFSGatewayBase):
+
+
     resolution = "path"
 
     def __init__(self, url):
@@ -94,13 +117,38 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
 
     async def api_get(self, endpoint, session, **kwargs):
         res = await session.get(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
+        print(res)
         self._raise_requests_too_quick(res)
         return res
 
+    
+
+
     async def api_post(self, endpoint, session, **kwargs):
-        res = await session.post(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
+
+
+        if 'headers' in kwargs.keys():
+            headers = kwargs.pop('headers')
+
+        if 'data' in kwargs.keys():
+            data = kwargs.pop('data')
+        import io
+        params = kwargs['params']
+        for d in data:
+            break
+
+        buffer = io.BytesIO()
+        for d in data:
+            buffer.write(d)
+
+
+
+        res = await session.post(url=self.url + "/api/v0/" + 'add', params=params, data= 2 , headers=headers , trace_request_ctx={'gateway': self.url})
         self._raise_requests_too_quick(res)
+        print(res)
+        print('headers', headers, )
         return res
+
 
     async def _cid_req(self, method, path, headers=None, **kwargs):
         headers = headers or {}
@@ -120,8 +168,10 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
     async def cid_get(self, path, session, headers=None, **kwargs):
         return await self._cid_req(session.get, path, headers=headers, **kwargs)
 
+
+
     async def version(self, session):
-        res = await self.api_get("version", session)
+        res = await self.api_get(endpoint="version", session=session)
         res.raise_for_status()
         return await res.json()
 
@@ -235,6 +285,10 @@ class MultiGateway(AsyncIPFSGatewayBase):
     async def ls(self, path, session):
         return await self._gw_op(lambda gw: gw.ls(path, session))
 
+    async def add(self, session, **kwargs):
+        return await self._gw_op(lambda gw: gw.ls(path, session))
+
+
     def state_report(self):
         return "\n".join(f"{s.next_request_time}, {gw}" for s, gw in self.gws)
 
@@ -242,91 +296,9 @@ class MultiGateway(AsyncIPFSGatewayBase):
         return "Multi-GW(" + ", ".join(str(gw) for _, gw in self.gws) + ")"
 
 
-async def get_client(**kwargs):
-    timeout = aiohttp.ClientTimeout(sock_connect=1, sock_read=5)
-    kwargs = {"timeout": timeout, **kwargs}
-    return aiohttp.ClientSession(**kwargs)
 
-
-DEFAULT_GATEWAY = None
-
-
-def get_gateway():
-    global DEFAULT_GATEWAY
-    if DEFAULT_GATEWAY is None:
-        use_gateway(*get_default_gateways())
-    return DEFAULT_GATEWAY
-
-
-def use_gateway(*urls):
-    global DEFAULT_GATEWAY
-    DEFAULT_GATEWAY = MultiGateway([AsyncIPFSGateway(url) for url in urls])
-
-
-class AsyncIPFSFileSystem(AsyncFileSystem):
-    sep = "/"
-    protocol = "ipfs"
-
-    def __init__(self, asynchronous=False, loop=None, client_kwargs=None, **storage_options):
-        super().__init__(self, asynchronous=asynchronous, loop=loop, **storage_options)
-        self._session = None
-
-        self.client_kwargs = client_kwargs or {}
-        self.get_client = get_client
-
-        if not asynchronous:
-            sync(self.loop, self.set_session)
-
-    @property
-    def gateway(self):
-        return get_gateway()
-
-    @staticmethod
-    def close_session(loop, session):
-        if loop is not None and loop.is_running():
-            try:
-                sync(loop, session.close, timeout=0.1)
-                return
-            except (TimeoutError, FSTimeoutError):
-                pass
-        if session._connector is not None:
-            # close after loop is dead
-            session._connector._close()
-
-    async def set_session(self):
-        if self._session is None:
-            self._session = await self.get_client(loop=self.loop, **self.client_kwargs)
-            if not self.asynchronous:
-                weakref.finalize(self, self.close_session, self.loop, self._session)
-        return self._session
-
-    async def _ls(self, path, detail=True, **kwargs):
-        path = self._strip_protocol(path)
-        session = await self.set_session()
-        res = await self.gateway.ls(path, session)
-        if detail:
-            return res
-        else:
-            return [r["name"] for r in res]
-
-    ls = sync_wrapper(_ls)
-
-    async def _cat_file(self, path, start=None, end=None, **kwargs):
-        path = self._strip_protocol(path)
-        session = await self.set_session()
-        return (await self.gateway.cat(path, session))[start:end]
-
-    async def _info(self, path, **kwargs):
-        path = self._strip_protocol(path)
-        session = await self.set_session()
-        return await self.gateway.file_info(path, session)
-
-    def open(self, path, mode="rb", block_size=None, cache_options=None, **kwargs):
-        if mode != "rb":
-            raise NotImplementedError
-        data = self.cat_file(path)  # load whole chunk into memory
-        return io.BytesIO(data)
-
-    def ukey(self, path):
-        """returns the CID, which is by definition an unchanging identitifer"""
-        return self.info(path)["CID"]
+    @classmethod
+    def get_gateway(cls, urls=None):
+        if urls == None:
+            urls = cls.DEFAULT_GATEWAYS
+        return cls([AsyncIPFSGateway(url) for url in urls])
