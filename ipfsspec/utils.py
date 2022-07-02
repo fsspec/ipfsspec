@@ -1,21 +1,6 @@
 import os
 import json
 
-GATEWAYS = [
-    "http://127.0.0.1:8080",
-    # "https://ipfs.io",
-    # "https://gateway.pinata.cloud",
-    # "https://cloudflare-ipfs.com",
-    # "https://dweb.link",
-]
-
-
-def get_default_gateways():
-    try:
-        return os.environ["IPFSSPEC_GATEWAYS"].split()
-    except KeyError:
-        return GATEWAYS
-
 
 def parse_response(
     response, # Response object
@@ -42,3 +27,43 @@ def parse_error_message(
     except:
         message = response.text
     return f"Response Status Code: {sc}; Error Message: {message}"
+
+
+def dict_get(input_dict,keys, default_value=False):
+    """
+    get keys that are dot seperated (key1.key2.key3) recursively into a dictionary
+    """
+    if isinstance(keys, str):
+        keys = keys.split('.')
+
+    key = keys[0]
+
+    try:
+
+        next_object_list = [input_dict[key]]
+        for key in keys[1:]:
+            next_object_list += [next_object_list[-1][key]]
+        return next_object_list[-1]
+    except Exception as e:
+        return default_value
+    
+
+def dict_put(input_dict,keys, value ):
+    """
+    insert keys that are dot seperated (key1.key2.key3) recursively into a dictionary
+    """
+    if isinstance(keys, str):
+        keys = keys.split('.')
+    key = keys[0]
+    if len(keys) == 1:
+        assert isinstance(input_dict,dict)
+        input_dict[key] = value
+
+    elif len(keys) > 1:
+        if key not in input_dict:
+            input_dict[key] = {}
+        dict_put(input_dict=input_dict[key],
+                             keys=keys[1:],
+                             value=value)
+
+

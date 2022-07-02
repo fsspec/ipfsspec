@@ -7,6 +7,7 @@ import asyncio
 import aiohttp
 import logging
 import ipfshttpclient 
+import copy
 
 logger = logging.getLogger("ipfsspec")
 
@@ -23,21 +24,25 @@ def get_default_gateways():
 
 class AsyncIPFSGatewayBase:
 
-    DEFAULT_GATEWAYS = [
-    "http://127.0.0.1:8080",
-    # "https://ipfs.io",
-    # "https://gateway.pinata.cloud",
-    # "https://cloudflare-ipfs.com",
-    # "https://dweb.link",
-    ]
+    DEFAULT_GATEWAY_MAP = {
+    'local': "http://127.0.0.1:8080",
+    'public': "https://ipfs.io",
+    'pinata': "https://gateway.pinata.cloud",
+    'cloudflare': "https://cloudflare-ipfs.com",
+     'dweb': "https://dweb.link",
+    }
+
+    DEFAULT_GATEWAYS = list(DEFAULT_GATEWAY_MAP.keys())
+    DEFAULT_GATEWAY_TYPES = list(DEFAULT_GATEWAY_MAP.keys())
 
 
-    async def stat(self, path, session):
+
+    async def stat(self,session, path):
         res = await self.api_get("files/stat", session, arg=path)
         self._raise_not_found_for_status(res, path)
         return await res.json()
 
-    async def file_info(self, path, session):
+    async def file_info(self,session, path):
         info = {"name": path}
 
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
@@ -65,8 +70,7 @@ class AsyncIPFSGatewayBase:
 
         return info
 
-    async def cat(self, path, session):
-
+    async def cat(self, session, path):
         res = await self.api_get(endpoint='cat', session=session, arg=path)
         async with res:
             self._raise_not_found_for_status(res, path)
@@ -74,16 +78,25 @@ class AsyncIPFSGatewayBase:
                 raise FileNotFoundError(path)
             return await res.read()
 
-    async def add(self, session, **kwargs):
-        api_kwargs = {'arg':path}
-        res = await self.api_get(endpoint='add', session=session, **api_kwargs)
+    async def add(self, session, path, **kwargs):
+        res = await self.api_get(endpoint='add', session=session, path=path, **kwargs)
         async with res:
             self._raise_not_found_for_status(res, path)
             if res.status != 200:
                 raise FileNotFoundError(path)
             return await res.read()
 
-    async def ls(self, path, session):
+
+    async def pin(self, session, cid, recursive=False, progress=False, **kwargs):
+        kwargs['params'] = kwargs.get('params', {})
+        kwargs['params'] = dict(arg=cid, recursive= recursive,progress= progress)
+        res = await self.gateway.api_post(endpoint='pin/add', session=session ,
+                                          arg=cid, recursive= recursive,progress= progress, **kwargs)
+        return bool(cid in pinned_cid_list)
+
+    async def ls(self,session, path):
+
+        params = dict(arg=path)
         res = await self.api_get(endpoint="ls", session=session, arg=path)
         self._raise_not_found_for_status(res, path)
         resdata = await res.json()
@@ -112,46 +125,43 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
 
     resolution = "path"
 
-    def __init__(self, url):
+    def __init__(self, url=None, gateway_type='local'):
+
+        if url == None:
+            url = self.DEFAULT_GATEWAY_MAP[gateway_type]
+
+        self.gateway_type = gateway_type
         self.url = url
 
+
     async def api_get(self, endpoint, session, **kwargs):
-        res = await session.get(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
-        print(res)
+        headers = kwargs.pop('headers') if 'headers' in kwargs else {}
+        params = kwargs['params'] if 'params' in kwargs else kwargs
+
+        res = await session.get(self.url + "/api/v0/" + endpoint, params=params,headers=headers, trace_request_ctx={'gateway': self.url})
         self._raise_requests_too_quick(res)
         return res
-
-    
 
 
     async def api_post(self, endpoint, session, **kwargs):
 
 
-        if 'headers' in kwargs.keys():
-            headers = kwargs.pop('headers')
+        data = kwargs.pop('data') if 'data'  in kwargs else {}
+        headers = kwargs.pop('headers') if 'headers' in kwargs else {}
+        params = kwargs['params'] if 'params' in kwargs else kwargs
 
-        if 'data' in kwargs.keys():
-            data = kwargs.pop('data')
-        import io
-        params = kwargs['params']
-        for d in data:
-            break
+        url = copy.copy(self.url)
+        if self.gateway_type == 'local':
+            url = url.replace('8080', '5001') 
 
-        buffer = io.BytesIO()
-        for d in data:
-            buffer.write(d)
+        res = await session.post(url + f"/api/v0/{endpoint}", params=params, data= data , headers=headers , trace_request_ctx={'gateway': self.url})
+
+        return await res.content.read()
 
 
+    async def _cid_req(self, method, path, **kwargs):
 
-        res = await session.post(url=self.url + "/api/v0/" + 'add', params=params, data= 2 , headers=headers , trace_request_ctx={'gateway': self.url})
-        self._raise_requests_too_quick(res)
-        print(res)
-        print('headers', headers, )
-        return res
-
-
-    async def _cid_req(self, method, path, headers=None, **kwargs):
-        headers = headers or {}
+        headers = kwargs.get('headers', {})
         if self.resolution == "path":
             res = await method(self.url + "/ipfs/" + path, trace_request_ctx={'gateway': self.url}, headers=headers)
         elif self.resolution == "subdomain":
@@ -162,13 +172,11 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         self._raise_requests_too_quick(res)
         return res
 
-    async def cid_head(self, path, session, headers=None, **kwargs):
+    async def cid_head(self, session, path, **kwargs):
         return await self._cid_req(session.head, path, headers=headers, **kwargs)
 
-    async def cid_get(self, path, session, headers=None, **kwargs):
+    async def cid_get(self, session, path,  **kwargs):
         return await self._cid_req(session.get, path, headers=headers, **kwargs)
-
-
 
     async def version(self, session):
         res = await self.api_get(endpoint="version", session=session)
@@ -273,20 +281,20 @@ class MultiGateway(AsyncIPFSGatewayBase):
     async def api_post(self, endpoint, session, **kwargs):
         return await self._gw_op(lambda gw: gw.api_post(endpoint, session, **kwargs))
 
-    async def cid_head(self, path, session, headers=None, **kwargs):
-        return await self._gw_op(lambda gw: gw.cid_head(path, session, headers=headers, **kwargs))
+    async def cid_head(self, session, path, **kwargs):
+        return await self._gw_op(lambda gw: gw.cid_head(session, path, **kwargs))
 
-    async def cid_get(self, path, session, headers=None, **kwargs):
-        return await self._gw_op(lambda gw: gw.cid_get(path, session, headers=headers, **kwargs))
+    async def cid_get(self, session, path,  **kwargs):
+        return await self._gw_op(lambda gw: gw.cid_get(session, path, **kwargs))
 
-    async def cat(self, path, session):
-        return await self._gw_op(lambda gw: gw.cat(path, session))
+    async def cat(self, session, path):
+        return await self._gw_op(lambda gw: gw.cat(session, path))
 
-    async def ls(self, path, session):
-        return await self._gw_op(lambda gw: gw.ls(path, session))
+    async def ls(self, session, path):
+        return await self._gw_op(lambda gw: gw.ls(session, path))
 
     async def add(self, session, **kwargs):
-        return await self._gw_op(lambda gw: gw.ls(path, session))
+        return await self._gw_op(lambda gw: gw.add(session, **kwargs))
 
 
     def state_report(self):
@@ -295,10 +303,12 @@ class MultiGateway(AsyncIPFSGatewayBase):
     def __str__(self):
         return "Multi-GW(" + ", ".join(str(gw) for _, gw in self.gws) + ")"
 
-
+    @classmethod
+    def get_gateway(cls, gateway_type='local'):
+        return cls([AsyncIPFSGateway(gateway_type=gateway_type)])
 
     @classmethod
-    def get_gateway(cls, urls=None):
-        if urls == None:
-            urls = cls.DEFAULT_GATEWAYS
-        return cls([AsyncIPFSGateway(url) for url in urls])
+    def get_gateways(cls, gateway_types=['local', 'public']):
+        if isinstance(gateway_type, str):
+            gateway_type = [gateway_type]
+        return cls([AsyncIPFSGateway(gateway_type(gateway_type=g))  for g in gateway_type])

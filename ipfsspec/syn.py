@@ -1,5 +1,4 @@
-from .utils import get_default_gateways, parse_error_message, parse_response
-
+from .utils import  parse_error_message, parse_response
 from fsspec.spec import AbstractFileSystem, AbstractBufferedFile
 import requests
 from requests.exceptions import HTTPError
@@ -16,11 +15,9 @@ logger = logging.getLogger("ipfsspec")
 
 MAX_RETRIES = 2
 
-
 class IPFSGateway:
     def __init__(self, url):
         self.url = url
-
         if self.url in ['http://127.0.0.1:5001', 'https://ipfs.infura.io:5001']:
             self.reqtype = 'post'
         else:
@@ -35,6 +32,7 @@ class IPFSGateway:
         adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100)
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
+
 
     def get(self, path):
         logger.debug("get %s via %s", path, self.url)
@@ -326,7 +324,6 @@ class IPFSFileSystem(AbstractFileSystem):
             raise TypeError ('`get` not supported on public gateways')
         root_struct[fol] = struct
         return root_struct
-
 
     def _save_links(self,
         links
