@@ -1,7 +1,7 @@
 import io
 import time
 import weakref
-
+import copy
 import asyncio
 import aiohttp
 from .buffered_file import IPFSBufferedFile
@@ -108,14 +108,36 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                 weakref.finalize(self, self.close_session, self.loop, self._session)
         return self._session
 
-    async def _ls(self, path='', detail=True, pin=True, **kwargs):
-        path = self._strip_protocol(path)
+    async def _ls(self, path='', detail=True, recursive=True, **kwargs):
+        # path = self._strip_protocol(path)
         session = await self.set_session()
-        res = await self.gateway.ls(session=session, path=path, pin=pin)
+        
+        res = await self.gateway.ls(session=session, path=path)
+
+        
+        if recursive:
+            res_list = []
+            cor_list = []
+            for r in res:
+                if r['type'] == 'directory':
+                    cor_list.append(self._ls(path=r['name'], detail=True, recursive=recursive, **kwargs))
+                elif r['type'] == 'file':
+                    res_list += [r]
+                    
+            if len(cor_list) > 0:
+                for r in (await asyncio.gather(*cor_list)):
+                    res_list += r
+            res = res_list
+
+
         if detail:
             return res
         else:
+            print(res)
             return [r["name"] for r in res]
+
+
+        
 
     ls = sync_wrapper(_ls)
 
@@ -181,7 +203,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _cp(self,path1, path2):
         session = await self.set_session()
         res = await self.gateway.cp(session=session, arg=[path1, path2])
-        print(res)
         return res
     cp = sync_wrapper(_cp)
 
@@ -241,7 +262,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         params['chunker'] = f'size-{chunker}'
         params['pin'] = 'true' if pin else 'false'
         params.update(kwargs)
-        params['wrap-with-directory'] = 'false'
+        params['wrap-with-directory'] = 'true'
 
 
         # print(os.path.isdir(lpath))
@@ -256,6 +277,12 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         res =  await res.content.read()
         if return_json:
             res = list(map(lambda x: json.loads(x), filter(lambda x: bool(x),  res.decode().split('\n'))))
+            res = list(filter(lambda x: isinstance(x, dict) and x.get('Name'), res))
+        if pin and not rpath:
+            rpath='/'
+        if rpath:
+            await self._cp(path1=f'/ipfs/{res[-1]["Hash"]}', path2=rpath)
+        
         return res
 
     put = sync_wrapper(_put)

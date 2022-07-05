@@ -100,23 +100,36 @@ class AsyncIPFSGatewayBase:
         res = await self.api_post(endpoint="files/cp", session=session, arg=kwargs['arg'])
         return await res.json()
 
-    async def ls(self,session, path,**kwargs):
+    async def ls(self,session, path, **kwargs):
 
         # if await self._in_mfs(session=session, path=path):
 
-        params = dict(arg=path)
 
-        res = await self.api_get(endpoint="ls", session=session, arg=path)
+        res = await self.api_post(endpoint="files/ls", session=session, arg=path, long='true')
         self._raise_not_found_for_status(res, path)
         resdata = await res.json()
-        types = {1: "directory", 2: "file"}
+
+        if resdata.get('Entries'):
+            links = resdata["Entries"]
+        else:
+            res = await self.api_get(endpoint="ls", session=session, arg=path)
+            self._raise_not_found_for_status(res, path)
+            resdata = await res.json()
+
+
+
+
+        types = {1: "directory", 2: "file", 0: 'file'}
+        if path[-1] != '/':
+            path += '/'
+
+
         return [{
-                    "name": path + "/" + link["Name"],
+                    "name": path  + link["Name"],
                     "CID": link["Hash"],
                     "type": types[link["Type"]],
                     "size": link["Size"],
-                }
-                for link in resdata["Objects"][0]["Links"]]
+                } for link in links]
 
     def _raise_not_found_for_status(self, response, url):
         """
