@@ -17,9 +17,13 @@ def test_get_hello_world():
     # with fsspec.open(f"ipfs://{TEST_ROOT}", mode="rb") as f:
     #     print(f.read())
     import json
-    res = fs.put_file('test/data/yo.txt', pin=True)
-    # print(json.loads(res.decode()))
-    print(fs.is_pinned(res['Hash']), res['Hash'])
+    res = fs.put(path='test/data', pin=True)
+    print(res)
+    fs.cp(path1='/ipfs/QmdgxwYid1bmPjN92GdAEZtUNCWonYK9Jz5chbob5BdphB',path2='/bro')
+    # print(fs.ls(path='QmdgxwYid1bmPjN92GdAEZtUNCWonYK9Jz5chbob5BdphB'), 'PATH')
+    # print(fs.ls(path='QmdgxwYid1bmPjN92GdAEZtUNCWonYK9Jz5chbob5BdphB'), 'PATH')
+    # # print(json.loads(res.decode()))
+    # print(res)
 
 
 # print(fs.ls(path=TEST_ROOT))

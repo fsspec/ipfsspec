@@ -108,10 +108,10 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                 weakref.finalize(self, self.close_session, self.loop, self._session)
         return self._session
 
-    async def _ls(self, path, detail=False, **kwargs):
+    async def _ls(self, path='', detail=True, pin=True, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
-        res = await self.gateway.ls(path, session)
+        res = await self.gateway.ls(session=session, path=path, pin=pin)
         if detail:
             return res
         else:
@@ -173,10 +173,17 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     pin = sync_wrapper(_is_pinned)
 
 
+    async def _api_post(self, endpoint, **kwargs):
+        session = await self.set_session()
+        return await self.gateway.api_post(endpoint=endpoint, session=session, **kwargs)
+    api_post = sync_wrapper(_api_post)
 
-    async def copy(self):
-        res = await self.gateway.api_post('cp', session,  params=params)
-
+    async def _cp(self,path1, path2):
+        session = await self.set_session()
+        res = await self.gateway.cp(session=session, arg=[path1, path2])
+        print(res)
+        return res
+    cp = sync_wrapper(_cp)
 
     async def _put_file(self,
         lpath=None,
@@ -186,6 +193,10 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         wrap_with_directory=False,
         **kwargs
     ):
+
+        if 'path' in kwargs:
+            lpath = kwargs.pop('path')
+
         session = await self.set_session()
         if not os.path.isfile(lpath): raise TypeError ('Use `put` to upload a directory')        
         if self.gateway_type == 'public': raise TypeError ('`put_file` and `put` functions require local/infura `gateway_type`')
@@ -199,7 +210,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         data = self.data_gen_wrapper(data=data)                                        
         res = await self.gateway.api_post('add', session,  params=params, data=data, headers=headers)
 
-
+        res =  await res.content.read()
         return json.loads(res.decode())
         # return res
     
@@ -210,23 +221,44 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
 
     async def _put(self,
-        path=None, 
+        lpath=None, 
+        rpath=None,
         recursive=True,
         pin=True,
         chunker=262144, 
+        return_json=True,
         **kwargs
     ):
         
         # if self.gateway_type == 'public': raise TypeError ('`put_file` and `put` functions require local/infura `gateway_type`')
         
+        session = await self.set_session()
+
+        if 'path' in kwargs:
+            lpath = kwargs.pop('path')
+
         params = {}
         params['chunker'] = f'size-{chunker}'
         params['pin'] = 'true' if pin else 'false'
         params.update(kwargs)
-        data, headers = stream_directory(path, chunk_size=chunker, recursive=recursive) 
+        params['wrap-with-directory'] = 'false'
+
+
+        # print(os.path.isdir(lpath))
+        if os.path.isdir(lpath):
+            data, headers = stream_directory(lpath, chunk_size=chunker, recursive=recursive)
+        else:
+            data, headers = stream_files(lpath, chunk_size=chunker)
+
+
         data = self.data_gen_wrapper(data=data)                             
-        res = await self.gateway.api_post('add', params=params, data=data)
+        res = await self.gateway.api_post('add', session=session, params=params, data=data, headers=headers)
+        res =  await res.content.read()
+        if return_json:
+            res = list(map(lambda x: json.loads(x), filter(lambda x: bool(x),  res.decode().split('\n'))))
         return res
+
+    put = sync_wrapper(_put)
 
     async def _cat_file(self, path, start=None, end=None, **kwargs):
         path = self._strip_protocol(path)
@@ -265,7 +297,63 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         return self.info(path)["CID"]
 
 
+    async def _get_links(self,
+        path,
+        fol
+    ):
+        root_struct = {}
+        struct = {}
+        
+        if self.gateway_type == 'local':
+            res = self._gw_apipost('ls', arg=path)
+            links = parse_response(res)[0]['Objects'][0]['Links']            
+            for link in links:
+                name = f'{fol}/{link["Name"]}'
+                hash_ = link['Hash']
+                if link['Type'] == 1:
+                    details = await self._get_links(hash_, name)
+                else:
+                    details = {'Hash': hash_}
+                struct[name] = details
+        elif self.gateway_type == 'infura':
+            res = await self.gateway.api_post('dag/get', arg=path)
+            links = (await res.json())['Links']
+            for link in links:
+                name = f'{fol}/{link["Name"]}'
+                hash_ = link['Hash']['/']
+                if len(name.split('.')) == 1:
+                    details = self._get_links(hash_, name)
+                else:
+                    details = {'Hash': hash_}
+                struct[name] = details
+        else:
+            raise TypeError ('`get` not supported on public gateways')
+        root_struct[fol] = struct
+        return root_struct
 
+    async def _save_links(self,links):
+        return asyncio.gather([self._save_link(k=k,v=v)for k, v in links.items()])
+
+    async def _save_link(self, k,v):
+        if len(k.split('.')) < 2:
+            if not os.path.exists(k): 
+                os.mkdir(k)
+            await self._save_links(v)
+        else:
+            data = await self.cat_file(links[k]['Hash'])
+            with open(k, 'wb') as f:
+                f.write(data.encode('utf-8'))    
+
+    async def _get(self,
+        rpath,
+        lpath=None,
+        **kwargs
+    ):
+        if lpath is None: lpath = os.getcwd()
+        self.full_structure = await self._get_links(rpath, lpath)
+        await self._save_links(self.full_structure)
+
+    get=sync_wrapper(_get)
 class IPFSBufferedFile(AbstractBufferedFile):
     def __init__(self, *args, **kwargs):
         super(IPFSBufferedFile, self).__init__(*args, **kwargs)
@@ -279,5 +367,8 @@ class IPFSBufferedFile(AbstractBufferedFile):
             return content.decode("utf-8")
         else:
             return content
+
+
+
 
 

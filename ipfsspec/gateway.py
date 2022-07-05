@@ -21,7 +21,6 @@ def get_default_gateways():
     except KeyError:
         return GATEWAYS
 
-
 class AsyncIPFSGatewayBase:
 
     DEFAULT_GATEWAY_MAP = {
@@ -34,8 +33,6 @@ class AsyncIPFSGatewayBase:
 
     DEFAULT_GATEWAYS = list(DEFAULT_GATEWAY_MAP.keys())
     DEFAULT_GATEWAY_TYPES = list(DEFAULT_GATEWAY_MAP.keys())
-
-
 
     async def stat(self,session, path):
         res = await self.api_get("files/stat", session, arg=path)
@@ -94,9 +91,21 @@ class AsyncIPFSGatewayBase:
                                           arg=cid, recursive= recursive,progress= progress, **kwargs)
         return bool(cid in pinned_cid_list)
 
-    async def ls(self,session, path):
+
+    async def _in_mfs(self, session, path):
+        return False
+
+
+    async def cp(self, session,  **kwargs):
+        res = await self.api_post(endpoint="files/cp", session=session, arg=kwargs['arg'])
+        return await res.json()
+
+    async def ls(self,session, path,**kwargs):
+
+        # if await self._in_mfs(session=session, path=path):
 
         params = dict(arg=path)
+
         res = await self.api_get(endpoint="ls", session=session, arg=path)
         self._raise_not_found_for_status(res, path)
         resdata = await res.json()
@@ -121,7 +130,6 @@ class AsyncIPFSGatewayBase:
 
 
 class AsyncIPFSGateway(AsyncIPFSGatewayBase):
-
 
     resolution = "path"
 
@@ -154,9 +162,9 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         if self.gateway_type == 'local':
             url = url.replace('8080', '5001') 
 
+        
         res = await session.post(url + f"/api/v0/{endpoint}", params=params, data= data , headers=headers , trace_request_ctx={'gateway': self.url})
-
-        return await res.content.read()
+        return res
 
 
     async def _cid_req(self, method, path, **kwargs):
@@ -282,19 +290,23 @@ class MultiGateway(AsyncIPFSGatewayBase):
         return await self._gw_op(lambda gw: gw.api_post(endpoint, session, **kwargs))
 
     async def cid_head(self, session, path, **kwargs):
-        return await self._gw_op(lambda gw: gw.cid_head(session, path, **kwargs))
+        return await self._gw_op(lambda gw: gw.cid_head(session=path, path=path, **kwargs))
 
     async def cid_get(self, session, path,  **kwargs):
-        return await self._gw_op(lambda gw: gw.cid_get(session, path, **kwargs))
+        return await self._gw_op(lambda gw: gw.cid_get(session=session, path=path, **kwargs))
 
     async def cat(self, session, path):
-        return await self._gw_op(lambda gw: gw.cat(session, path))
+        return await self._gw_op(lambda gw: gw.cat(session=session, path=path))
 
-    async def ls(self, session, path):
-        return await self._gw_op(lambda gw: gw.ls(session, path))
+    async def ls(self, session, path, **kwargs):
+        return await self._gw_op(lambda gw: gw.ls(session=session, path=path, **kwargs))
 
     async def add(self, session, **kwargs):
-        return await self._gw_op(lambda gw: gw.add(session, **kwargs))
+        return await self._gw_op(lambda gw: gw.add(session=session, **kwargs))
+
+    async def cp(self, session, **kwargs):
+        return await self._gw_op(lambda gw: gw.cp(session=session,**kwargs))
+
 
 
     def state_report(self):
