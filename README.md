@@ -2,7 +2,42 @@
 
 A readonly implementation of fsspec for IPFS.
 
-This project is currently very rudimentaty. It is not yet optimized for efficiency and is not yet feature complete. However it should be enough to list directory contents and to retrieve files from `ipfs://` resources via fsspec. A simple hello worlds would look like:
+This Project supports the following functions in ffsspec. Because ipfs uses content hashes we treat the Mutable File System as a proxy for saving files in a unix format while also storing the ipfs object as a cid. 
+
+
+### open
+- r
+
+### put/put_file
+- puts local file (lpath) in ipfs mutible file system (rpath)
+
+### rm
+- removes path in the MFS store
+
+### ls
+- list all of the links in an ipfs object cid or a MFS file store
+
+### cp
+
+- copies path1 into path2 via Mutable File System
+
+```python
+fs.cp(path1='/ipfs/QmdgxwYid1bmPjN92GdAEZtUNCWonYK9Jz5chbob5BdphB',path2='/fam')
+```
+
+### cat/cat_file
+
+### put/put_file
+
+### get/get_file
+
+### expand_path
+
+### du
+
+### size
+- get the size of the ipfs path/ MFS path within
+
 
 ```python
 import fsspec

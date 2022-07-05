@@ -34,17 +34,17 @@ class AsyncIPFSGatewayBase:
     DEFAULT_GATEWAYS = list(DEFAULT_GATEWAY_MAP.keys())
     DEFAULT_GATEWAY_TYPES = list(DEFAULT_GATEWAY_MAP.keys())
 
-    async def stat(self,session, path):
-        res = await self.api_get("files/stat", session, arg=path)
+    async def stat(self,session, path, **kwargs):
+        res = await self.api_get("files/stat", session, arg=path, **kwargs)
         self._raise_not_found_for_status(res, path)
         return await res.json()
 
     async def file_info(self,session, path):
         info = {"name": path}
 
-        headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
-        res = await self.cid_head(path, session, headers=headers)
 
+        headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
+        res = await self.cid_head(session=session, path=path, headers=headers)
         async with res:
             self._raise_not_found_for_status(res, path)
             if res.status != 200:
@@ -92,9 +92,45 @@ class AsyncIPFSGatewayBase:
         return bool(cid in pinned_cid_list)
 
 
-    async def _in_mfs(self, session, path):
-        return False
+    async def _save_links(self, session, links):
 
+        async def _save_link(k,v):
+            if len(k.split('.')) < 2:
+                if not os.path.exists(k): 
+                    os.mkdir(k)
+                await self._save_links(v)
+            else:
+                data = await self.cat(session=session, path=links[k]['Hash'])
+                with open(k, 'wb') as f:
+                    f.write(data.encode('utf-8'))    
+
+        return await asyncio.gather([self._save_link(session=session, k=k,v=v)for k, v in links.items()])
+
+
+    async def _get_links(self,path,fol):
+        root_struct = {}
+        struct = {}
+        
+        if self.gateway_type in ['infura', 'local']:
+            res = await self.gateway.api_post(endpoint='dag/get',session=session, arg=path)
+            links = (await res.json())['Links']
+            for link in links:
+                name = f'{fol}/{link["Name"]}'
+                hash_ = link['Hash']['/']
+                if len(name.split('.')) == 1:
+                    details = await self._get_links(hash_, name)
+                else:
+                    details = {'Hash': hash_}
+                struct[name] = details
+        else:
+            raise TypeError ('`get` not supported on public gateways')
+        root_struct[fol] = struct
+        return root_struct
+
+
+
+    async def _in_mfs(self, session, path):
+        raise NotImplementedError
 
     async def cp(self, session,  **kwargs):
         res = await self.api_post(endpoint="files/cp", session=session, arg=kwargs['arg'])
@@ -106,15 +142,22 @@ class AsyncIPFSGatewayBase:
 
 
         res = await self.api_post(endpoint="files/ls", session=session, arg=path, long='true')
-        self._raise_not_found_for_status(res, path)
+        #self._raise_not_found_for_status(res, path)
         resdata = await res.json()
 
         if resdata.get('Entries'):
             links = resdata["Entries"]
         else:
             res = await self.api_get(endpoint="ls", session=session, arg=path)
-            self._raise_not_found_for_status(res, path)
+            # self._raise_not_found_for_status(res, path)
             resdata = await res.json()
+
+            if resdata.get('Type') == 'error':
+                return []
+            
+
+            links = resdata['Objects'][0]['Links']
+
 
 
 
@@ -135,6 +178,7 @@ class AsyncIPFSGatewayBase:
         """
         Raises FileNotFoundError for 404s, otherwise uses raise_for_status.
         """
+        
         if response.status == 404:
             raise FileNotFoundError(url)
         elif response.status == 400:
@@ -193,7 +237,7 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         self._raise_requests_too_quick(res)
         return res
 
-    async def cid_head(self, session, path, **kwargs):
+    async def cid_head(self, session, path, headers, **kwargs):
         return await self._cid_req(session.head, path, headers=headers, **kwargs)
 
     async def cid_get(self, session, path,  **kwargs):
@@ -212,6 +256,53 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
             else:
                 retry_after = None
             raise RequestsTooQuick(retry_after)
+
+
+
+    async def get_links(self,session, path,fol):
+        root_struct = {}
+        struct = {}
+        
+        if self.gateway_type in ['infura', 'local']:
+            res = await self.api_post(endpoint='dag/get', session=session, arg=path)
+            links = (await res.json())['Links']
+
+            cor_link_dict = {}
+            for link in links:
+                name = f'{fol}/{link["Name"]}'
+                hash_ = link['Hash']['/']
+                if len(name.split('.')) == 1:
+                    cor_link_dict[name] = self._get_links(hash_, name)
+                else:
+                    details = {'Hash': hash_}
+                    struct[name] = details
+            
+            for name,link_aw in zip(cor_link_dict.keys(), asyncio.as_completed(cor_link_dict.values())):
+                link =  await link_aw
+                name = f'{fol}/{link["Name"]}'
+                hash_ = link['Hash']['/']
+                struct[name] = link
+
+
+        else:
+            raise TypeError ('`get` not supported on public gateways')
+        root_struct[fol] = struct
+        return root_struct
+
+    async def _save_links(self,links):
+        return await asyncio.gather([self._save_link(k=k,v=v)for k, v in links.items()])
+
+    async def _save_link(self, k,v):
+        if len(k.split('.')) < 2:
+            if not os.path.exists(k): 
+                os.mkdir(k)
+            await self._save_links(v)
+        else:
+            data = await self.cat_file(links[k]['Hash'])
+            with open(k, 'wb') as f:
+                f.write(data.encode('utf-8'))    
+
+
 
     def __str__(self):
         return f"GW({self.url})"
@@ -255,7 +346,7 @@ class GatewayState:
 
 
 class MultiGateway(AsyncIPFSGatewayBase):
-    def __init__(self, gws, max_backoff_rounds=50):
+    def __init__(self, gws, max_backoff_rounds=40):
         self.gws = [(GatewayState(), gw) for gw in gws]
         self.max_backoff_rounds = max_backoff_rounds
 
@@ -303,7 +394,7 @@ class MultiGateway(AsyncIPFSGatewayBase):
         return await self._gw_op(lambda gw: gw.api_post(endpoint, session, **kwargs))
 
     async def cid_head(self, session, path, **kwargs):
-        return await self._gw_op(lambda gw: gw.cid_head(session=path, path=path, **kwargs))
+        return await self._gw_op(lambda gw: gw.cid_head(session=session, path=path, **kwargs))
 
     async def cid_get(self, session, path,  **kwargs):
         return await self._gw_op(lambda gw: gw.cid_get(session=session, path=path, **kwargs))

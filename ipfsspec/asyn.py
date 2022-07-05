@@ -108,14 +108,29 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                 weakref.finalize(self, self.close_session, self.loop, self._session)
         return self._session
 
-    async def _ls(self, path='', detail=True, recursive=True, **kwargs):
+
+    async def _rm_file(self ,path, gc=True, **kwargs):
+        session = await self.set_session()
+        await self.gateway.api_post(session=session, endpoint='files/rm', recursion='false', arg=path)
+        if gc:
+            await self.gateway.api_post(session=session, endpoint='repo/gc')
+
+    async def _rm(self, path, recursion=True ,**kwargs):
+
+        recursion='true' if recursion else 'false'
+
+
+    async def _ls(self, path='/', detail=True, recursive=False, **kwargs):
         # path = self._strip_protocol(path)
+        if path == '':
+            path = '/'
         session = await self.set_session()
         
         res = await self.gateway.ls(session=session, path=path)
 
-        
+
         if recursive:
+            # this is prob not needed with self.find
             res_list = []
             cor_list = []
             for r in res:
@@ -129,50 +144,20 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                     res_list += r
             res = res_list
 
-
         if detail:
             return res
         else:
-            print(res)
             return [r["name"] for r in res]
 
 
-        
+
 
     ls = sync_wrapper(_ls)
 
-
-    async def _put_dir(self,
-        path=None,
-        pin=True,
-        chunker=262144, 
-        **kwargs
-    ):
-        session = await self.set_session()
-        if not os.path.isfile(path): raise TypeError ('Use `put` to upload a directory')        
-        # if self.gateway_type == 'public': raise TypeError ('`put_file` and `put` functions require local/infura `gateway_type`')
-        
-        params = {}
-        params['wrap-with-directory'] = 'true' if wrap_with_directory else 'false'
-        params['chunker'] = f'size-{chunker}'
-        params['pin'] = 'true' if pin else 'false'
-        params.update(kwargs)
-        data, headers = stream_directory(path, chunk_size=chunker)
-        data = self.data_gen_wrapper(data=data)                                  
-        res = await self.gateway.api_post('add', session,  params=params, data=data, headers=headers)
-        
-        return res
-    
-
-
-    def store_pin(self, path):
-        return self.fs_local.put_file(path1, path2)
-        
-
-
     # def _store_path(self, path, hash):
 
-    def pin(self,cid):
+    async def pin(self,cid):
+        res = await self.gateway.api_post('pin/add', session, params={'arg':cid})
         return self.client.pin.add(cid)
 
 
@@ -295,7 +280,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _info(self, path, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
-        return await self.gateway.file_info(path, session)
+        return await self.gateway.file_info(session=session, path=path)
 
     def open(self, path, mode="rb",  block_size="default",autocommit=True,
                 cache_type="readahead", cache_options=None, size=None, **kwargs):
@@ -323,79 +308,21 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         """returns the CID, which is by definition an unchanging identitifer"""
         return self.info(path)["CID"]
 
-
-    async def _get_links(self,
-        path,
-        fol
-    ):
-        root_struct = {}
-        struct = {}
-        
-        if self.gateway_type == 'local':
-            res = self._gw_apipost('ls', arg=path)
-            links = parse_response(res)[0]['Objects'][0]['Links']            
-            for link in links:
-                name = f'{fol}/{link["Name"]}'
-                hash_ = link['Hash']
-                if link['Type'] == 1:
-                    details = await self._get_links(hash_, name)
-                else:
-                    details = {'Hash': hash_}
-                struct[name] = details
-        elif self.gateway_type == 'infura':
-            res = await self.gateway.api_post('dag/get', arg=path)
-            links = (await res.json())['Links']
-            for link in links:
-                name = f'{fol}/{link["Name"]}'
-                hash_ = link['Hash']['/']
-                if len(name.split('.')) == 1:
-                    details = self._get_links(hash_, name)
-                else:
-                    details = {'Hash': hash_}
-                struct[name] = details
-        else:
-            raise TypeError ('`get` not supported on public gateways')
-        root_struct[fol] = struct
-        return root_struct
-
-    async def _save_links(self,links):
-        return asyncio.gather([self._save_link(k=k,v=v)for k, v in links.items()])
-
-    async def _save_link(self, k,v):
-        if len(k.split('.')) < 2:
-            if not os.path.exists(k): 
-                os.mkdir(k)
-            await self._save_links(v)
-        else:
-            data = await self.cat_file(links[k]['Hash'])
-            with open(k, 'wb') as f:
-                f.write(data.encode('utf-8'))    
-
     async def _get(self,
         rpath,
         lpath=None,
         **kwargs
     ):
         if lpath is None: lpath = os.getcwd()
-        self.full_structure = await self._get_links(rpath, lpath)
-        await self._save_links(self.full_structure)
-
+        self.full_structure = await self.gateway.get_links(rpath, lpath)
+        await self.gateway.save_links(self.full_structure)
     get=sync_wrapper(_get)
-class IPFSBufferedFile(AbstractBufferedFile):
-    def __init__(self, *args, **kwargs):
-        super(IPFSBufferedFile, self).__init__(*args, **kwargs)
-        self.__content = None
-
-    def _fetch_range(self, start, end):
-        if self.__content is None:
-            self.__content = self.fs.cat_file(self.path)
-        content = self.__content[start:end]
-        if "b" not in self.mode:
-            return content.decode("utf-8")
-        else:
-            return content
 
 
 
 
 
+
+
+    # def walk2(self,*args,**kwargs):
+    #     yield from asyncio.run(self._walk(*args,**kwargs))
