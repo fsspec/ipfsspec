@@ -2,6 +2,83 @@ from fsspec.spec import  AbstractBufferedFile
 import io
 from fsspec.core import get_compression
 
+
+class IPFSBufferedFile(AbstractBufferedFile):
+    def __init__(self, 
+                fs,
+                path,
+                mode="rb",
+                block_size="default",
+                autocommit=True,
+                cache_type="readahead",
+                cache_options=None,
+                size=None,
+                pin=False,
+                rpath=None,
+                **kwargs):
+        super(IPFSBufferedFile, self).__init__(
+                fs,
+                path,
+                mode="rb",
+                block_size="default",
+                autocommit=True,
+                cache_type="readahead",
+                cache_options=None,
+                size=None, **kwargs)
+
+        self.pin = pin
+        self.
+
+
+        self.__content = None
+
+        if 'w' in mode:
+            i, name = tempfile.mkstemp()
+            self.local_f = LocalFileOpener(path=name, mode=mode, fs=f)
+
+    def _fetch_range(self, start, end):
+        if self.__content is None:
+            self.__content = self.fs.cat_file(self.path)
+        content = self.__content[start:end]
+        if "b" not in self.mode:
+            return content.decode("utf-8")
+        else:
+            return content
+
+    def _upload_chunk(self, final=False):
+        """Write one part of a multi-block file upload
+
+        Parameters
+        ==========
+        final: bool
+            This is the last block, so should complete file, if
+            self.autocommit is True.
+        """
+        # may not yet have been initialized, may need to call _initialize_upload
+
+
+    def _upload_chunk(self, final=False):
+         self.local_tmp_f.write(self.buffer.read())
+        if force:
+            self.commit()
+        return not final
+    def commit(self):
+
+        self.local_tmp_f.close()
+        # put the local file into ipfs
+        self.fs.put(path=self.local_tmp_path)
+        # remove temp file
+        os.remove(self.temp)
+
+
+    def _initiate_upload(self):
+        # TODO: check if path is writable?
+        i, local_tmp_path = tempfile.mkstemp()
+        os.close(i)  # we want normal open and normal buffered file
+        self.local_tmp_path = local_tmp_path
+        self.local_tmp_f = open(local_tmp_path, mode=self.mode)
+
+
 class LocalFileOpener(io.IOBase):
     def __init__(
         self, path, mode, autocommit=True, fs=None, compression=None, **kwargs
@@ -123,34 +200,3 @@ class LocalFileOpener(io.IOBase):
         self.f.__exit__(exc_type, exc_value, traceback)
 
 
-class IPFSBufferedFile(AbstractBufferedFile):
-    def __init__(self, 
-                fs,
-                path,
-                mode="rb",
-                block_size="default",
-                autocommit=True,
-                cache_type="readahead",
-                cache_options=None,
-                size=None,
-                **kwargs):
-        super(IPFSBufferedFile, self).__init__(
-                fs,
-                path,
-                mode="rb",
-                block_size="default",
-                autocommit=True,
-                cache_type="readahead",
-                cache_options=None,
-                size=None,
-                *args, **kwargs)
-        self.__content = None
-
-    def _fetch_range(self, start, end):
-        if self.__content is None:
-            self.__content = self.fs.cat_file(self.path)
-        content = self.__content[start:end]
-        if "b" not in self.mode:
-            return content.decode("utf-8")
-        else:
-            return content

@@ -199,7 +199,7 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         self.url = url
 
 
-    async def api_get(self, endpoint, session, **kwargs):
+    async def api_get(self,session, endpoint, **kwargs):
         headers = kwargs.pop('headers') if 'headers' in kwargs else {}
         params = kwargs['params'] if 'params' in kwargs else kwargs
 
@@ -244,7 +244,7 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         return await self._cid_req(session.get, path, headers=headers, **kwargs)
 
     async def version(self, session):
-        res = await self.api_get(endpoint="version", session=session)
+        res = await self.api_get(session=session, endpoint="version", )
         res.raise_for_status()
         return await res.json()
 

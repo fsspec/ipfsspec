@@ -265,6 +265,8 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
             res = list(filter(lambda x: isinstance(x, dict) and x.get('Name'), res))
         if pin and not rpath:
             rpath='/'
+        
+        
         if rpath:
             await self._cp(path1=f'/ipfs/{res[-1]["Hash"]}', path2=rpath)
         
@@ -275,12 +277,15 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _cat_file(self, path, start=None, end=None, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
-        return (await self.gateway.cat(path, session))[start:end]
+        return (await self.gateway.cat(session=session, path=path))[start:end]
 
     async def _info(self, path, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
-        return await self.gateway.file_info(session=session, path=path)
+        print(path)
+        info = await self.gateway.file_info(session=session, path=path)
+        print('info', info)
+        return info
 
     def open(self, path, mode="rb",  block_size="default",autocommit=True,
                 cache_type="readahead", cache_options=None, size=None, **kwargs):
