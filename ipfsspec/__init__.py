@@ -10,7 +10,6 @@ del get_versions
 register_implementation(AsyncIPFSFileSystem.protocol, AsyncIPFSFileSystem)
 
 
-print('bro')
 __all__ = ["__version__", "IPFSFileSystem", "AsyncIPFSFileSystem"]
 
 if __name__ == '__name__':

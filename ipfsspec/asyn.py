@@ -4,6 +4,7 @@ import weakref
 import copy
 import asyncio
 import aiohttp
+from glob import has_magic
 from .buffered_file import IPFSBufferedFile
 import json
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
@@ -107,27 +108,92 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
             if not self.asynchronous:
                 weakref.finalize(self, self.close_session, self.loop, self._session)
         return self._session
+    
+    async def close(self):
+        """Close file
 
+        Finalizes writes, discards cache
+        """
+        if getattr(self, "_unclosable", False):
+            return
+        if self.closed:
+            return
+        if self.mode == "rb":
+            self.cache = None
+        else:
+            if not self.forced:
+                await self.flush(force=True)
 
+            if self.fs is not None:
+                self.fs.invalidate_cache(self.path)
+                self.fs.invalidate_cache(self.fs._parent(self.path))
+
+        self.closed = True
+
+    
+    def __del__(self):
+        print('DELETE')
+        self.close_session(loop=self.loop, session=self._session)
+    async def _expand_path(self, path, recursive=False, maxdepth=None):
+        if isinstance(path, str):
+            out = await self._expand_path([path], recursive, maxdepth)
+        else:
+            # reduce depth on each recursion level unless None or 0
+            maxdepth = maxdepth if not maxdepth else maxdepth - 1
+            out = set()
+            path = [self._strip_protocol(p) for p in path]
+            for p in path:  # can gather here
+                if has_magic(p):
+                    bit = set(await self._glob(p))
+                    out |= bit
+                    if recursive:
+                        out |= set(
+                            await self._expand_path(
+                                list(bit), recursive=recursive, maxdepth=maxdepth
+                            )
+                        )
+                    continue
+                elif recursive:
+                    
+                    rec = set(await self._find(p, maxdepth=maxdepth, withdirs=True))
+                    out |= rec
+                if p not in out and (recursive is False or (await self._exists(p))):
+                    # should only check once, for the root
+                    out.add(p)
+        if not out:
+            raise FileNotFoundError(path)
+        return list(sorted(out))
     async def _rm_file(self ,path, gc=True, **kwargs):
         session = await self.set_session()
-        await self.gateway.api_post(session=session, endpoint='files/rm', recursion='false', arg=path)
+        response = await self.gateway.api_post(session=session, endpoint='files/rm', recursive='true', arg=path)
         if gc:
             await self.gateway.api_post(session=session, endpoint='repo/gc')
 
-    async def _rm(self, path, recursion=True ,**kwargs):
+    # async def _rm(self, path, recursion=True , gc=True,**kwargs):
+    #     recursion='true' if recursion else 'false'
+    #     session = await self.set_session()
+    #     await self.gateway.api_post(session=session, endpoint='files/rm', recursion=recursion, arg=path)
+    #     if gc:
+    #         await self.gateway.api_post(session=session, endpoint='repo/gc')
 
-        recursion='true' if recursion else 'false'
-
+    @staticmethod
+    def ensure_path(path):
+        assert isinstance(path, str), f'path must be string, but got {path}'
+        if len(path) == 0:
+            path = '/'
+        elif len(path) > 0:
+            if path[0] != '/':
+                path = '/' + path
+        
+        return path
 
     async def _ls(self, path='/', detail=True, recursive=False, **kwargs):
         # path = self._strip_protocol(path)
-        if path == '':
-            path = '/'
+
+        path = self.ensure_path(path=path)
         session = await self.set_session()
         
         res = await self.gateway.ls(session=session, path=path)
-
 
         if recursive:
             # this is prob not needed with self.find
@@ -144,6 +210,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                     res_list += r
             res = res_list
 
+
         if detail:
             return res
         else:
@@ -157,13 +224,13 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     # def _store_path(self, path, hash):
 
     async def pin(self,cid):
-        res = await self.gateway.api_post('pin/add', session, params={'arg':cid})
+        res = await self.gateway.api_post(endpoint='pin/add', session=session, params={'arg':cid})
         return self.client.pin.add(cid)
 
 
     async def _is_pinned(self, cid):
         session = await self.set_session()
-        res = await self.gateway.api_post('pin/ls', session, params={'arg':cid})
+        res = await self.gateway.api_post(endpoint='pin/ls', session=session, params={'arg':cid})
         pinned_cid_list = list(json.loads(res.decode()).get('Keys').keys())
         return bool(cid in pinned_cid_list)
 
@@ -172,7 +239,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
     async def pin(self, cid, recursive=False, progress=False):
         session = await self.set_session()
-        res = await self.gateway.api_post('pin/add', session, params={'arg':cid, 
+        res = await self.gateway.api_post(endpoint='pin/add', session=session, params={'arg':cid, 
                                                                      'recursive': recursive,
                                                                       'progress': progress})
         return bool(cid in pinned_cid_list)
@@ -214,7 +281,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         
         data, headers = stream_files(lpath, chunk_size=chunker)
         data = self.data_gen_wrapper(data=data)                                        
-        res = await self.gateway.api_post('add', session,  params=params, data=data, headers=headers)
+        res = await self.gateway.api_post(endpoint='add', session=session,  params=params, data=data, headers=headers)
 
         res =  await res.content.read()
         return json.loads(res.decode())
@@ -258,7 +325,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
 
         data = self.data_gen_wrapper(data=data)                             
-        res = await self.gateway.api_post('add', session=session, params=params, data=data, headers=headers)
+        res = await self.gateway.api_post(endpoint='add', session=session, params=params, data=data, headers=headers)
         res =  await res.content.read()
         if return_json:
             res = list(map(lambda x: json.loads(x), filter(lambda x: bool(x),  res.decode().split('\n'))))
@@ -266,7 +333,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         if pin and not rpath:
             rpath='/'
         
-        
+
         if rpath:
             await self._cp(path1=f'/ipfs/{res[-1]["Hash"]}', path2=rpath)
         
@@ -282,9 +349,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _info(self, path, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
-        print(path)
         info = await self.gateway.file_info(session=session, path=path)
-        print('info', info)
         return info
 
     def open(self, path, mode="rb",  block_size="default",autocommit=True,

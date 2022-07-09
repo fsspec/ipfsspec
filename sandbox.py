@@ -15,16 +15,18 @@ register_implementation(AsyncIPFSFileSystem.protocol, AsyncIPFSFileSystem)
 fs = fsspec.filesystem("ipfs")
 
 
-# put in a file
-cid = fs.put(path='test/data', pin=True)
-print(cid)
-print(fs.info(f"ipfs://{cid[-1]['Hash']}"))
-with fs.open(f"ipfs://{cid[-1]['Hash']}", mode="rb") as f:
-    print(f.read())
-    
+# # put in a file
+cid = fs.put(path='test', rpath='/y')
+# print(cid)
+# print(fs.info(f"ipfs://{cid[-1]['Hash']}"))
+# with fs.open(f"ipfs://{cid[-1]['Hash']}", mode="rb") as f:
+#     print(f.read())
+# print(fs.ls('', detail=False))  
+print(fs.ls('/', recursive=True,  detail=False))
 
+print(fs.ls('/', recursive=True,  detail=False))
 
-
+print(fs.ls('/', recursive=True,  detail=False))
 
 
 # import fsspec

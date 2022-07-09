@@ -16,6 +16,9 @@ class IPFSBufferedFile(AbstractBufferedFile):
                 pin=False,
                 rpath=None,
                 **kwargs):
+        self.fs = fs
+        self.path = path
+        self._ensure_file_type()
         super(IPFSBufferedFile, self).__init__(
                 fs,
                 path,
@@ -27,14 +30,7 @@ class IPFSBufferedFile(AbstractBufferedFile):
                 size=None, **kwargs)
 
         self.pin = pin
-        self.
-
-
-        self.__content = None
-
-        if 'w' in mode:
-            i, name = tempfile.mkstemp()
-            self.local_f = LocalFileOpener(path=name, mode=mode, fs=f)
+        self.rpath=rpath
 
     def _fetch_range(self, start, end):
         if self.__content is None:
@@ -57,8 +53,11 @@ class IPFSBufferedFile(AbstractBufferedFile):
         # may not yet have been initialized, may need to call _initialize_upload
 
 
+    def _ensure_file_type(self):
+        file_type = self.fs.info(self.path)['type']
+        assert file_type == 'file', f'Path must be "file" but is : "{file_type}"' 
     def _upload_chunk(self, final=False):
-         self.local_tmp_f.write(self.buffer.read())
+        self.local_tmp_f.write(self.buffer.read())
         if force:
             self.commit()
         return not final

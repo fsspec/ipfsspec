@@ -35,7 +35,7 @@ class AsyncIPFSGatewayBase:
     DEFAULT_GATEWAY_TYPES = list(DEFAULT_GATEWAY_MAP.keys())
 
     async def stat(self,session, path, **kwargs):
-        res = await self.api_get("files/stat", session, arg=path, **kwargs)
+        res = await self.api_get(endpoint="files/stat", session=session, arg=path, **kwargs)
         self._raise_not_found_for_status(res, path)
         return await res.json()
 
@@ -208,7 +208,7 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         return res
 
 
-    async def api_post(self, endpoint, session, **kwargs):
+    async def api_post(self, session,endpoint, **kwargs):
 
 
         data = kwargs.pop('data') if 'data'  in kwargs else {}
@@ -219,8 +219,9 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         if self.gateway_type == 'local':
             url = url.replace('8080', '5001') 
 
+        url = url + f"/api/v0/{endpoint}"
+        res = await session.post(url, params=params, data= data , headers=headers , trace_request_ctx={'gateway': self.url})
         
-        res = await session.post(url + f"/api/v0/{endpoint}", params=params, data= data , headers=headers , trace_request_ctx={'gateway': self.url})
         return res
 
 
@@ -387,11 +388,11 @@ class MultiGateway(AsyncIPFSGatewayBase):
                 raise exception
         raise RequestsTooQuick()
 
-    async def api_get(self, endpoint, session, **kwargs):
-        return await self._gw_op(lambda gw: gw.api_get(endpoint, session, **kwargs))
+    async def api_get(self,session, endpoint, **kwargs):
+        return await self._gw_op(lambda gw: gw.api_get(session=session,endpoint=endpoint, **kwargs))
 
-    async def api_post(self, endpoint, session, **kwargs):
-        return await self._gw_op(lambda gw: gw.api_post(endpoint, session, **kwargs))
+    async def api_post(self, session,endpoint, **kwargs):
+        return await self._gw_op(lambda gw: gw.api_post(session=session,endpoint=endpoint, **kwargs))
 
     async def cid_head(self, session, path, **kwargs):
         return await self._gw_op(lambda gw: gw.cid_head(session=session, path=path, **kwargs))
