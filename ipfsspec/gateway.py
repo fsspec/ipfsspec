@@ -40,9 +40,17 @@ class AsyncIPFSGatewayBase:
         return await res.json()
 
     async def file_info(self,session, path):
+        '''
+        Resolves the file info for hash or mfs path:
+        
+        params:
+            session: aiohttp session
+            path: cid or mfs path. Ifs mfs path then resolves to cid. 
+
+        
+        '''
+        path = await self.resolve_mfs_path(session=session, path=path)
         info = {"name": path}
-
-
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
         res = await self.cid_head(session=session, path=path, headers=headers)
         async with res:
@@ -67,15 +75,19 @@ class AsyncIPFSGatewayBase:
 
         return info
 
-    async def _get_mfs_hash(self, session, path):
+    async def resolve_mfs_path(self, session, path):
+        # converts mfs to cid if it exists. If it doesnt, then it returns the original cid
+        
         res = await self.api_post(endpoint='files/stat', session=session, arg=path)
-        return (await res.json()).get('Hash')
-    
-    async def cat(self, session, path):
-        mfs_hash = await self._get_mfs_hash(session=session, path=path)
+        mfs_hash = (await res.json()).get('Hash')
         if mfs_hash:
             path = mfs_hash
-
+        
+        return path
+    
+    async def cat(self, session, path):
+        path = await self.resolve_mfs_path(session=session, path=path)
+        
         res = await self.api_get(endpoint='cat', session=session, arg=path)
 
         async with res:
@@ -192,7 +204,7 @@ class AsyncIPFSGatewayBase:
             raise FileNotFoundError(url)
         elif response.status == 500:
 
-            print('RESPONSE', response)
+            print('RESPONSE', response.json())
             raise FileNotFoundError(url + f'{url} ERROR ({response.status})')
         response.raise_for_status()
 

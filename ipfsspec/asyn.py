@@ -5,7 +5,7 @@ import copy
 import asyncio
 import aiohttp
 from fsspec.asyn import _run_coros_in_chunks
-
+from fsspec.utils import is_exception
 from glob import has_magic
 from .buffered_file import IPFSBufferedFile
 import json
@@ -189,28 +189,46 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         
         return path
 
-    async def _isdir(self, path):
-        
-        session = await self.set_session()
-
-        # first try get dag to get the cid
-        res = await self.gateway.api_get(endpoint='dag/get', session=session, arg=path)
-        res = (await res.json())
-
-        # if the cid is invalid, the resposne Type == error
-        if res.get('Type') == 'error':
-            res = await self.gateway.api_post(endpoint='files/stat', session=session, arg=path)
-            res = await res.json()
-            print(res)
-            return res['Type'] == 'directory'
-            
-        else:
-            # else, the
-            return bool(res['data'] == "CAE=")
-        
-    isdir = sync_wrapper(_isdir)
-
     
+    async def _cat(
+        self, path, recursive=False, on_error="raise", batch_size=None, **kwargs
+    ):
+        if self._isdir(path=path):
+            recursive = True
+
+
+        paths = await self._expand_path(path, recursive=recursive)
+        
+        async def _file_filter(p):
+            # FIX: returns path if file, else returns False
+            if await self._isfile(p):
+                return p
+            else:
+                return False
+
+        paths = [_ for _ in await asyncio.gather(*[ _file_filter(p) for p in paths]) if bool(_) ]
+        coros = [self._cat_file(path, **kwargs) for path in paths]
+        batch_size = batch_size or self.batch_size
+        out = await _run_coros_in_chunks(
+            coros, batch_size=batch_size, nofiles=True, return_exceptions=True
+        )
+        if on_error == "raise":
+            ex = next(filter(is_exception, out), False)
+            if ex:
+                raise ex
+        if (
+            len(paths) > 1
+            or isinstance(path, list)
+            or paths[0] != self._strip_protocol(path)
+        ):
+            return {
+                k: v
+                for k, v in zip(paths, out)
+                if on_error != "omit" or not is_exception(v)
+            }
+        else:
+            return out[0]
+
     async def  _stat(self, path):
         session = await self.set_session()
 
@@ -388,7 +406,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _cat_file(self, path, start=None, end=None, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
-        print(path, 'bro')
         return (await self.gateway.cat(session=session, path=path))[start:end]
 
     async def _info(self, path, **kwargs):

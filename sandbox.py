@@ -16,10 +16,12 @@ fs = fsspec.filesystem("ipfs")
 
 
 def test_put_directory():
-    cid = fs.put(path='test/data', rpath='/test')
-    print(fs.expand_path(path='/test', recursive=True))
 
-    print(fs.cat(path='/test', recursive=False))
+    cid = fs.put(path='test', rpath='/bro')
+
+    # cid = fs.rm(path='/', recursive=True)
+    print(fs.info(path='/bro'))
+    print(fs.cat(path='/bro', recursive=False))
 
 def test_put_file():
     cid = fs.put(path='test/data', rpath='/test')
