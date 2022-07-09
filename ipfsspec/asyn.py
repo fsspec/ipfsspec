@@ -4,6 +4,8 @@ import weakref
 import copy
 import asyncio
 import aiohttp
+from fsspec.asyn import _run_coros_in_chunks
+
 from glob import has_magic
 from .buffered_file import IPFSBufferedFile
 import json
@@ -132,7 +134,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
     
     def __del__(self):
-        print('DELETE')
+        # print('DELETE')
         self.close_session(loop=self.loop, session=self._session)
     async def _expand_path(self, path, recursive=False, maxdepth=None):
         if isinstance(path, str):
@@ -187,6 +189,36 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         
         return path
 
+    async def _isdir(self, path):
+        
+        session = await self.set_session()
+
+        # first try get dag to get the cid
+        res = await self.gateway.api_get(endpoint='dag/get', session=session, arg=path)
+        res = (await res.json())
+
+        # if the cid is invalid, the resposne Type == error
+        if res.get('Type') == 'error':
+            res = await self.gateway.api_post(endpoint='files/stat', session=session, arg=path)
+            res = await res.json()
+            print(res)
+            return res['Type'] == 'directory'
+            
+        else:
+            # else, the
+            return bool(res['data'] == "CAE=")
+        
+    isdir = sync_wrapper(_isdir)
+
+    
+    async def  _stat(self, path):
+        session = await self.set_session()
+
+        res = await self.gateway.api_get(endpoint='files/stat', session=session, path=path)
+        return res
+    stat = sync_wrapper(_stat)
+
+    
     async def _ls(self, path='/', detail=True, recursive=False, **kwargs):
         # path = self._strip_protocol(path)
 
@@ -341,9 +373,22 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
     put = sync_wrapper(_put)
 
+
+    async def _rm(self, path, recursive=False, batch_size=None, **kwargs):
+        # TODO: implement on_error
+        batch_size = batch_size or self.batch_size
+        path = await self._expand_path(path, recursive=recursive)
+        print(path, 'PATH')
+        return await _run_coros_in_chunks(
+            [self._rm_file(p, **kwargs) for p in path],
+            batch_size=batch_size,
+            nofiles=True,
+        )
+
     async def _cat_file(self, path, start=None, end=None, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
+        print(path, 'bro')
         return (await self.gateway.cat(session=session, path=path))[start:end]
 
     async def _info(self, path, **kwargs):
@@ -387,12 +432,3 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         self.full_structure = await self.gateway.get_links(rpath, lpath)
         await self.gateway.save_links(self.full_structure)
     get=sync_wrapper(_get)
-
-
-
-
-
-
-
-    # def walk2(self,*args,**kwargs):
-    #     yield from asyncio.run(self._walk(*args,**kwargs))

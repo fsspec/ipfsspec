@@ -1,7 +1,7 @@
 import pytest
 import time
 
-from ipfsspec.async_ipfs import MultiGateway, AsyncIPFSGatewayBase, RequestsTooQuick
+from ipfsspec.gateway import MultiGateway, AsyncIPFSGatewayBase, RequestsTooQuick
 
 
 class MockGateway(AsyncIPFSGatewayBase):

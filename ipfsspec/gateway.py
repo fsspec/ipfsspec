@@ -67,8 +67,17 @@ class AsyncIPFSGatewayBase:
 
         return info
 
+    async def _get_mfs_hash(self, session, path):
+        res = await self.api_post(endpoint='files/stat', session=session, arg=path)
+        return (await res.json()).get('Hash')
+    
     async def cat(self, session, path):
+        mfs_hash = await self._get_mfs_hash(session=session, path=path)
+        if mfs_hash:
+            path = mfs_hash
+
         res = await self.api_get(endpoint='cat', session=session, arg=path)
+
         async with res:
             self._raise_not_found_for_status(res, path)
             if res.status != 200:
@@ -83,7 +92,7 @@ class AsyncIPFSGatewayBase:
                 raise FileNotFoundError(path)
             return await res.read()
 
-
+    
     async def pin(self, session, cid, recursive=False, progress=False, **kwargs):
         kwargs['params'] = kwargs.get('params', {})
         kwargs['params'] = dict(arg=cid, recursive= recursive,progress= progress)
@@ -129,8 +138,6 @@ class AsyncIPFSGatewayBase:
 
 
 
-    async def _in_mfs(self, session, path):
-        raise NotImplementedError
 
     async def cp(self, session,  **kwargs):
         res = await self.api_post(endpoint="files/cp", session=session, arg=kwargs['arg'])
@@ -183,6 +190,10 @@ class AsyncIPFSGatewayBase:
             raise FileNotFoundError(url)
         elif response.status == 400:
             raise FileNotFoundError(url)
+        elif response.status == 500:
+
+            print('RESPONSE', response)
+            raise FileNotFoundError(url + f'{url} ERROR ({response.status})')
         response.raise_for_status()
 
 
