@@ -41,6 +41,9 @@ def test_put(lpath = DEFAULT_LPATH, rpath=DEFAULT_RPATH):
     fs.rm(path=rpath)
     assert not fs.exists(path=rpath)
 
+
+
+
 def test_info(lpath=DEFAULT_LPATH, rpath=DEFAULT_RPATH):
     cid = fs.put(lpath=lpath, rpath=rpath)
     rpath = configure_rpath(rpath=rpath, lpath=lpath)
@@ -55,13 +58,17 @@ def test_rm(lpath=DEFAULT_LPATH, rpath = DEFAULT_RPATH):
     fs.rm(path=rpath)
     assert not fs.exists(path=rpath)
 
-def test_get():
-    raise NotImplementedError
+def test_get(lpath = DEFAULT_LPATH, rpath=DEFAULT_RPATH):
+    local_dir_hash = fs_file.cat(path=lpath,  recursive=True)
+    cid = fs.put(lpath=lpath, rpath=rpath)
+    fs.get(rpath=configure_rpath(rpath=rpath, lpath=lpath), lpath='output')
+
+test_get()
 # test_put_directory()
 
-test_put()
-test_rm()
-test_info()
+# test_put()
+# test_rm()
+# test_info()
 # # put in a file
 # cid = fs.put(path='test/data', rpath='/y')
 # print(cid[-1]['Hash'])

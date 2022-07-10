@@ -8,6 +8,7 @@ import aiohttp
 import logging
 import ipfshttpclient 
 import copy
+import os
 
 logger = logging.getLogger("ipfsspec")
 
@@ -108,47 +109,9 @@ class AsyncIPFSGatewayBase:
     async def pin(self, session, cid, recursive=False, progress=False, **kwargs):
         kwargs['params'] = kwargs.get('params', {})
         kwargs['params'] = dict(arg=cid, recursive= recursive,progress= progress)
-        res = await self.gateway.api_post(endpoint='pin/add', session=session ,
+        res = await self.api_post(endpoint='pin/add', session=session ,
                                           arg=cid, recursive= recursive,progress= progress, **kwargs)
         return bool(cid in pinned_cid_list)
-
-
-    async def _save_links(self, session, links):
-
-        async def _save_link(k,v):
-            if len(k.split('.')) < 2:
-                if not os.path.exists(k): 
-                    os.mkdir(k)
-                await self._save_links(v)
-            else:
-                data = await self.cat(session=session, path=links[k]['Hash'])
-                with open(k, 'wb') as f:
-                    f.write(data.encode('utf-8'))    
-
-        return await asyncio.gather([self._save_link(session=session, k=k,v=v)for k, v in links.items()])
-
-
-    async def _get_links(self,path,fol):
-        root_struct = {}
-        struct = {}
-        
-        if self.gateway_type in ['infura', 'local']:
-            res = await self.gateway.api_post(endpoint='dag/get',session=session, arg=path)
-            links = (await res.json())['Links']
-            for link in links:
-                name = f'{fol}/{link["Name"]}'
-                hash_ = link['Hash']['/']
-                if len(name.split('.')) == 1:
-                    details = await self._get_links(hash_, name)
-                else:
-                    details = {'Hash': hash_}
-                struct[name] = details
-        else:
-            raise TypeError ('`get` not supported on public gateways')
-        root_struct[fol] = struct
-        return root_struct
-
-
 
 
     async def cp(self, session,  **kwargs):
@@ -291,47 +254,43 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
             raise RequestsTooQuick(retry_after)
 
 
-
-    async def get_links(self,session, path,fol):
+    async def get_links(self,session, lpath,rpath):
         root_struct = {}
         struct = {}
         
-        if self.gateway_type in ['infura', 'local']:
-            res = await self.api_post(endpoint='dag/get', session=session, arg=path)
-            links = (await res.json())['Links']
+        rpath = await self.resolve_mfs_path(session=session, path=rpath)
 
-            cor_link_dict = {}
+        
+        if self.gateway_type in ['infura', 'local']:
+            res = await self.api_post(endpoint='dag/get',session=session, arg=rpath)
+            links = (await res.json())['links']
+            print(links, 'links', lpath, rpath)
             for link in links:
-                name = f'{fol}/{link["Name"]}'
+                name = f'{lpath}/{link["Name"]}'
                 hash_ = link['Hash']['/']
                 if len(name.split('.')) == 1:
-                    cor_link_dict[name] = self._get_links(hash_, name)
+                    details = await self.get_links(session=session, rpath=hash_, lpath=name)
                 else:
                     details = {'Hash': hash_}
-                    struct[name] = details
-            
-            for name,link_aw in zip(cor_link_dict.keys(), asyncio.as_completed(cor_link_dict.values())):
-                link =  await link_aw
-                name = f'{fol}/{link["Name"]}'
-                hash_ = link['Hash']['/']
-                struct[name] = link
-
-
+                struct[name] = details
         else:
             raise TypeError ('`get` not supported on public gateways')
-        root_struct[fol] = struct
+        root_struct[rpath] = struct
         return root_struct
 
-    async def _save_links(self,links):
-        return await asyncio.gather([self._save_link(k=k,v=v)for k, v in links.items()])
 
-    async def _save_link(self, k,v):
-        if len(k.split('.')) < 2:
-            if not os.path.exists(k): 
-                os.mkdir(k)
-            await self._save_links(v)
+    async def save_links(self, session, links):
+        return await asyncio.gather(*[self.save_link(session=session, lpath=k,rpath=v)for k, v in links.items()])
+
+    async def save_link(self, session, lpath,rpath):
+        lpath_dir = os.path.dirname(lpath)
+        if len(lpath.split('.')) < 2:
+            print(lpath, rpath, 'save_link')
+            if not os.path.isdir(lpath_dir): 
+                os.mkdir(lpath_dir)
+            await self.save_links(lpath=lpath, rpath= rpath)
         else:
-            data = await self.cat_file(links[k]['Hash'])
+            data = await self.cat_file(links[lpath]['Hash'])
             with open(k, 'wb') as f:
                 f.write(data.encode('utf-8'))    
 
@@ -443,7 +402,11 @@ class MultiGateway(AsyncIPFSGatewayBase):
 
     async def cp(self, session, **kwargs):
         return await self._gw_op(lambda gw: gw.cp(session=session,**kwargs))
+    async def get_links(self, session, **kwargs):
+        return await self._gw_op(lambda gw: gw.get_links(session=session,**kwargs))
 
+    async def save_links(self, session, **kwargs):
+        return await self._gw_op(lambda gw: gw.save_links(session=session,**kwargs))
 
 
     def state_report(self):

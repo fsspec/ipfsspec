@@ -468,7 +468,11 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         lpath=None,
         **kwargs
     ):
+        if 'path' in kwargs:
+            lpath = kwargs.pop('path')
+        
+        session = await self.set_session()
         if lpath is None: lpath = os.getcwd()
-        self.full_structure = await self.gateway.get_links(rpath, lpath)
-        await self.gateway.save_links(self.full_structure)
+        self.full_structure = await self.gateway.get_links(session=session, rpath=rpath, lpath=lpath)
+        await self.gateway.save_links(session=session, links=self.full_structure)
     get=sync_wrapper(_get)
