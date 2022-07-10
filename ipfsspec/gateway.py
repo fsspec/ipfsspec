@@ -55,6 +55,8 @@ class AsyncIPFSGatewayBase:
 
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
         res = await self.cid_head(session=session, path=path, headers=headers)
+        
+        print(await res.content.read(), 'res')
         async with res:
             self._raise_not_found_for_status(res, path)
             if res.status != 200:
@@ -260,11 +262,14 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
         
         rpath = await self.resolve_mfs_path(session=session, path=rpath)
 
-        
         if self.gateway_type in ['infura', 'local']:
             res = await self.api_post(endpoint='dag/get',session=session, arg=rpath)
-            links = (await res.json())['links']
-            print(links, 'links', lpath, rpath)
+            
+            links = (await res.json())
+
+            res = await self.file_info(session=session, path=rpath)
+            print(res)
+            # print(links, 'links', lpath, rpath)
             for link in links:
                 name = f'{lpath}/{link["Name"]}'
                 hash_ = link['Hash']['/']
@@ -280,12 +285,13 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
 
 
     async def save_links(self, session, links):
+        print(links, 'LINKS')
         return await asyncio.gather(*[self.save_link(session=session, lpath=k,rpath=v)for k, v in links.items()])
 
     async def save_link(self, session, lpath,rpath):
         lpath_dir = os.path.dirname(lpath)
+        
         if len(lpath.split('.')) < 2:
-            print(lpath, rpath, 'save_link')
             if not os.path.isdir(lpath_dir): 
                 os.mkdir(lpath_dir)
             await self.save_links(lpath=lpath, rpath= rpath)

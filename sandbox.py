@@ -61,7 +61,11 @@ def test_rm(lpath=DEFAULT_LPATH, rpath = DEFAULT_RPATH):
 def test_get(lpath = DEFAULT_LPATH, rpath=DEFAULT_RPATH):
     local_dir_hash = fs_file.cat(path=lpath,  recursive=True)
     cid = fs.put(lpath=lpath, rpath=rpath)
-    fs.get(rpath=configure_rpath(rpath=rpath, lpath=lpath), lpath='output')
+
+    get_rpath = configure_rpath(rpath=rpath, lpath=lpath)
+    print(fs.ls(recursive=True))
+    print(get_rpath, 'get_rpath')
+    fs.get(rpath=get_rpath, lpath='output2')
 
 test_get()
 # test_put_directory()

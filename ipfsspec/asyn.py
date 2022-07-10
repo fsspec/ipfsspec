@@ -6,6 +6,7 @@ import asyncio
 import aiohttp
 from fsspec.asyn import _run_coros_in_chunks
 from fsspec.utils import is_exception
+from fsspec.callbacks import _DEFAULT_CALLBACK
 from glob import has_magic
 from .buffered_file import IPFSBufferedFile
 import json
@@ -15,6 +16,7 @@ import os
 from fsspec.exceptions import FSTimeoutError
 from fsspec.implementations.local import LocalFileSystem
 from fsspec.spec import AbstractBufferedFile
+from fsspec.utils import is_exception, other_paths
 from .gateway import MultiGateway
 from .utils import dict_get, dict_put, dict_hash,dict_equal
 
@@ -463,16 +465,67 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         """returns the CID, which is by definition an unchanging identitifer"""
         return self.info(path)["CID"]
 
-    async def _get(self,
-        rpath,
-        lpath=None,
-        **kwargs
-    ):
-        if 'path' in kwargs:
-            lpath = kwargs.pop('path')
+    # async def _get(self,
+    #     rpath,
+    #     lpath=None,
+    #     **kwargs
+    # ):
+    #     if 'path' in kwargs:
+    #         lpath = kwargs.pop('path')
         
-        session = await self.set_session()
-        if lpath is None: lpath = os.getcwd()
-        self.full_structure = await self.gateway.get_links(session=session, rpath=rpath, lpath=lpath)
-        await self.gateway.save_links(session=session, links=self.full_structure)
-    get=sync_wrapper(_get)
+    #     session = await self.set_session()
+    #     if lpath is None: lpath = os.getcwd()
+    #     self.full_structure = await self.gateway.get_links(session=session, rpath=rpath, lpath=lpath)
+    #     await self.gateway.save_links(session=session, links=self.full_structure)
+    # get=sync_wrapper(_get)
+
+    async def _get_file(self, rpath, lpath, **kwargs):
+        import shutil
+        session = self._session
+        # shutil.rmtree(lpath)
+        data = await self._cat(path=rpath)
+
+        path = lpath + rpath
+        dirpath = os.path.dirname(path)
+        if not os.path.isdir(dirpath):
+            os.makedirs(dirpath)
+        
+        print(path, lpath, rpath, 'BRUH', data)
+        f = open(path, mode='wb')
+        f.write(data)
+        f.close()
+
+    async def _get(
+        self, rpath, lpath, recursive=False, callback=_DEFAULT_CALLBACK, **kwargs
+    ):
+        """Copy file(s) to local.
+
+        Copies a specific file or tree of files (if recursive=True). If lpath
+        ends with a "/", it will be assumed to be a directory, and target files
+        will go within. Can submit a list of paths, which may be glob-patterns
+        and will be expanded.
+
+        The get_file method will be called concurrently on a batch of files. The
+        batch_size option can configure the amount of futures that can be executed
+        at the same time. If it is -1, then all the files will be uploaded concurrently.
+        The default can be set for this instance by passing "batch_size" in the
+        constructor, or for all instances by setting the "gather_batch_size" key
+        in ``fsspec.config.conf``, falling back to 1/8th of the system limit .
+        """
+        from fsspec.implementations.local import make_path_posix
+
+        rpath = self._strip_protocol(rpath)
+        lpath = make_path_posix(lpath)
+        rpaths = await self._expand_path(rpath, recursive=recursive)
+        lpaths = other_paths(rpaths, lpath)
+        [os.makedirs(os.path.dirname(lp), exist_ok=True) for lp in lpaths]
+        batch_size = kwargs.pop("batch_size", self.batch_size)
+
+        coros = []
+        callback.set_size(len(lpaths))
+        for lpath, rpath in zip(lpaths, rpaths):
+            callback.branch(rpath, lpath, kwargs)
+            coros.append(self._get_file(rpath, lpath, **kwargs))
+        return await _run_coros_in_chunks(
+            coros, batch_size=batch_size, callback=callback
+        )
