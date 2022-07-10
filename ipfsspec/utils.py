@@ -67,3 +67,30 @@ def dict_put(input_dict,keys, value ):
                              value=value)
 
 
+
+
+
+from typing import Dict, Any
+import hashlib
+import json
+
+def dict_hash(dictionary: Dict[str, Any]) -> str:
+    """MD5 hash of a dictionary."""
+    dhash = hashlib.md5()
+    # We need to sort arguments so {'a': 1, 'b': 2} is
+    # the same as {'b': 2, 'a': 1}
+    encoded = json.dumps(dictionary, sort_keys=True).encode()
+    dhash.update(encoded)
+    return dhash.hexdigest()
+
+
+def dict_equal(*args):
+
+    if not all([ isinstance(arg, dict) for arg in args]):
+        return False
+    for i in range(len(args)):
+        for j in range(len(args)):
+            if dict_hash(args[i]) != dict_hash(args[j]):
+                return False
+
+    return True

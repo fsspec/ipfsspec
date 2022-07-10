@@ -49,8 +49,9 @@ class AsyncIPFSGatewayBase:
 
         
         '''
-        path = await self.resolve_mfs_path(session=session, path=path)
         info = {"name": path}
+        path = await self.resolve_mfs_path(session=session, path=path)
+
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
         res = await self.cid_head(session=session, path=path, headers=headers)
         async with res:
@@ -62,7 +63,6 @@ class AsyncIPFSGatewayBase:
                 info["size"] = int(res.headers["Content-Length"])
             elif "Content-Range" in res.headers:
                 info["size"] = int(res.headers["Content-Range"].split("/")[1])
-
             if "ETag" in res.headers:
                 etag = res.headers["ETag"].strip("\"")
                 info["ETag"] = etag
@@ -152,22 +152,32 @@ class AsyncIPFSGatewayBase:
 
 
     async def cp(self, session,  **kwargs):
+        
         res = await self.api_post(endpoint="files/cp", session=session, arg=kwargs['arg'])
-        return await res.json()
+        
+        res= await res.json()
+        return res
 
     async def ls(self,session, path, **kwargs):
 
         # if await self._in_mfs(session=session, path=path):
 
-
         res = await self.api_post(endpoint="files/ls", session=session, arg=path, long='true')
-        #self._raise_not_found_for_status(res, path)
+        
+   
         resdata = await res.json()
+        # self._raise_not_found_for_status(res, path)
+
+     
 
         if resdata.get('Entries'):
             links = resdata["Entries"]
         else:
+            if path[0] == '/':
+                path = path[1:]
             res = await self.api_get(endpoint="ls", session=session, arg=path)
+            
+
             # self._raise_not_found_for_status(res, path)
             resdata = await res.json()
 
@@ -204,8 +214,7 @@ class AsyncIPFSGatewayBase:
             raise FileNotFoundError(url)
         elif response.status == 500:
 
-            print('RESPONSE', response.json())
-            raise FileNotFoundError(url + f'{url} ERROR ({response.status})')
+            raise FileNotFoundError( f'{url} ERROR ({response.status})')
         response.raise_for_status()
 
 

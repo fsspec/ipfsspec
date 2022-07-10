@@ -16,7 +16,7 @@ from fsspec.exceptions import FSTimeoutError
 from fsspec.implementations.local import LocalFileSystem
 from fsspec.spec import AbstractBufferedFile
 from .gateway import MultiGateway
-from .utils import dict_get, dict_put
+from .utils import dict_get, dict_put, dict_hash,dict_equal
 
 import logging
 
@@ -193,7 +193,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _cat(
         self, path, recursive=False, on_error="raise", batch_size=None, **kwargs
     ):
-        if self._isdir(path=path):
+        if await self._isdir(path=path):
             recursive = True
 
 
@@ -242,7 +242,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
         path = self.ensure_path(path=path)
         session = await self.set_session()
-        
         res = await self.gateway.ls(session=session, path=path)
 
         if recursive:
@@ -333,8 +332,9 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         data = self.data_gen_wrapper(data=data)                                        
         res = await self.gateway.api_post(endpoint='add', session=session,  params=params, data=data, headers=headers)
 
-        res =  await res.content.read()
-        return json.loads(res.decode())
+        res =  await res.json()
+
+        return res
         # return res
     
     @staticmethod
@@ -366,37 +366,60 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         params.update(kwargs)
         params['wrap-with-directory'] = 'true'
 
+        local_isdir = os.path.isdir(lpath)
+        local_isfile = os.path.isfile(lpath)
 
-        # print(os.path.isdir(lpath))
-        if os.path.isdir(lpath):
+        assert bool(local_isfile) != bool(local_isdir), \
+                f'WTF, local_isfile: {local_isfile} && local_isdir: {local_isdir}'
+        
+        if local_isdir:
+            assert bool(local_isfile) == False
             data, headers = stream_directory(lpath, chunk_size=chunker, recursive=recursive)
         else:
+            assert bool(local_isfile) == True
             data, headers = stream_files(lpath, chunk_size=chunker)
-
-
+        
+        
         data = self.data_gen_wrapper(data=data)                             
         res = await self.gateway.api_post(endpoint='add', session=session, params=params, data=data, headers=headers)
+        
         res =  await res.content.read()
-        if return_json:
-            res = list(map(lambda x: json.loads(x), filter(lambda x: bool(x),  res.decode().split('\n'))))
-            res = list(filter(lambda x: isinstance(x, dict) and x.get('Name'), res))
+        res = list(map(lambda x: json.loads(x), filter(lambda x: bool(x),  res.decode().split('\n'))))
+        res = list(filter(lambda x: isinstance(x, dict) and x.get('Name'), res))
+        
         if pin and not rpath:
             rpath='/'
-        
-
         if rpath:
-            await self._cp(path1=f'/ipfs/{res[-1]["Hash"]}', path2=rpath)
-        
+            
+            if  local_isdir:
+                await self._cp(path1=f'/ipfs/{res[-1]["Hash"]}', path2=rpath )
+            else:
+
+                cid_hash = res[-1]["Hash"]
+                ipfs_path = f'/ipfs/{cid_hash}'
+                tmp_path = f'{rpath}/{cid_hash}'
+                rdir = os.path.dirname(tmp_path)
+                final_path = f'{rpath}/{os.path.basename(lpath)}'
+                if not (await self._isdir(rdir)):
+                    await self._mkdir(path=rdir)
+                if rdir[-1] != '/' and len(rdir) > 1:
+                    rdir = rdir + '/'
+                await self._cp(path1=ipfs_path, path2=rdir  )
+                ipfs_path = f'/{rpath}/{cid_hash}'
+                await self._cp(path1=tmp_path, path2=final_path )
+                await self._rm_file(ipfs_path)
         return res
 
     put = sync_wrapper(_put)
 
 
+    async def _mkdir(self, path):
+        session = await self.set_session()
+        return await self.gateway.api_post(session=session, endpoint='files/mkdir', arg=path)
     async def _rm(self, path, recursive=False, batch_size=None, **kwargs):
         # TODO: implement on_error
         batch_size = batch_size or self.batch_size
         path = await self._expand_path(path, recursive=recursive)
-        print(path, 'PATH')
         return await _run_coros_in_chunks(
             [self._rm_file(p, **kwargs) for p in path],
             batch_size=batch_size,
