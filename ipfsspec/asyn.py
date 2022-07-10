@@ -136,7 +136,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
     
     def __del__(self):
-        # print('DELETE')
         self.close_session(loop=self.loop, session=self._session)
     async def _expand_path(self, path, recursive=False, maxdepth=None):
         if isinstance(path, str):
@@ -306,7 +305,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _api_get(self, endpoint, **kwargs):
         session = await self.set_session()
         res =  await self.gateway.api_get(endpoint=endpoint, session=session, **kwargs)
-        print(res.headers)
         if res.headers['Content-Type'] == 'application/json':
             res = await res.json()
         elif res.headers['Content-Type'] == 'text/plain':
@@ -398,7 +396,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         res = await self.gateway.api_post(endpoint='add', session=session, params=params, data=data, headers=headers)
         
         res =  await res.content.read()
-        print(res)
         res = list(map(lambda x: json.loads(x), filter(lambda x: bool(x),  res.decode().split('\n'))))
         res = list(filter(lambda x: isinstance(x, dict) and x.get('Name'), res))
         res_hash = res[-1]["Hash"]
@@ -406,7 +403,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         if pin and not rpath:
             rpath='/'
         if rpath:
-            print()
             
             if  local_isdir:
                 await self._cp(path1=f'/ipfs/{res[-1]["Hash"]}', path2=rpath )
@@ -503,7 +499,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         session = self._session
         # shutil.rmtree(lpath)
         data = await self._cat(path=rpath)
-        print(data, 'BRO')
         
         f = open(lpath, mode='wb')
         f.write(data)
@@ -544,7 +539,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         rpaths = list(filter(lambda p: len(p.split('.')) == 2, rpaths))
 
 
-        print(lpaths,rpaths, 'POSIX')
 
         coros = []
         callback.set_size(len(lpaths))
