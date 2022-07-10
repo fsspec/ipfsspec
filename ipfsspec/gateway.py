@@ -40,6 +40,12 @@ class AsyncIPFSGatewayBase:
         self._raise_not_found_for_status(res, path)
         return await res.json()
 
+
+    async def dag_get(self, session, path, **kwargs):
+        path = await self.resolve_mfs_path(session=session, path=path)
+        res =  await self.api_get(endpoint="dag/get", session=session, arg=path, **kwargs)
+        return res
+
     async def file_info(self,session, path):
         '''
         Resolves the file info for hash or mfs path:
@@ -55,8 +61,6 @@ class AsyncIPFSGatewayBase:
 
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
         res = await self.cid_head(session=session, path=path, headers=headers)
-        
-        print(await res.content.read(), 'res')
         async with res:
             self._raise_not_found_for_status(res, path)
             if res.status != 200:
@@ -113,6 +117,13 @@ class AsyncIPFSGatewayBase:
         kwargs['params'] = dict(arg=cid, recursive= recursive,progress= progress)
         res = await self.api_post(endpoint='pin/add', session=session ,
                                           arg=cid, recursive= recursive,progress= progress, **kwargs)
+        return bool(cid in pinned_cid_list)
+
+
+    async def dag_get(self, session,  **kwargs):
+        kwargs['params'] = kwargs.get('params', {})
+        kwargs['params'] = dict(arg=cid, recursive= recursive,progress= progress)
+        res = await self.api_post(endpoint='dag/get', session=session , **kwargs)
         return bool(cid in pinned_cid_list)
 
 
@@ -256,6 +267,7 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
             raise RequestsTooQuick(retry_after)
 
 
+    
     async def get_links(self,session, lpath,rpath):
         root_struct = {}
         struct = {}
@@ -268,7 +280,6 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
             links = (await res.json())
 
             res = await self.file_info(session=session, path=rpath)
-            print(res)
             # print(links, 'links', lpath, rpath)
             for link in links:
                 name = f'{lpath}/{link["Name"]}'
@@ -285,7 +296,6 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
 
 
     async def save_links(self, session, links):
-        print(links, 'LINKS')
         return await asyncio.gather(*[self.save_link(session=session, lpath=k,rpath=v)for k, v in links.items()])
 
     async def save_link(self, session, lpath,rpath):
@@ -391,20 +401,24 @@ class MultiGateway(AsyncIPFSGatewayBase):
     async def api_post(self, session,endpoint, **kwargs):
         return await self._gw_op(lambda gw: gw.api_post(session=session,endpoint=endpoint, **kwargs))
 
-    async def cid_head(self, session, path, **kwargs):
-        return await self._gw_op(lambda gw: gw.cid_head(session=session, path=path, **kwargs))
+    async def cid_head(self, session,  **kwargs):
+        return await self._gw_op(lambda gw: gw.cid_head(session=session, **kwargs))
 
-    async def cid_get(self, session, path,  **kwargs):
+    async def cid_get(self, session,  **kwargs):
         return await self._gw_op(lambda gw: gw.cid_get(session=session, path=path, **kwargs))
 
-    async def cat(self, session, path):
-        return await self._gw_op(lambda gw: gw.cat(session=session, path=path))
+    async def cat(self, session, **kwargs):
+        return await self._gw_op(lambda gw: gw.cat(session=session, **kwargs))
 
-    async def ls(self, session, path, **kwargs):
-        return await self._gw_op(lambda gw: gw.ls(session=session, path=path, **kwargs))
+    async def ls(self, session, **kwargs):
+        return await self._gw_op(lambda gw: gw.ls(session=session, **kwargs))
 
     async def add(self, session, **kwargs):
         return await self._gw_op(lambda gw: gw.add(session=session, **kwargs))
+
+    async def dag_get(self, session, **kwargs):
+        return await self._gw_op(lambda gw: gw.dag_get(session=session, **kwargs))
+
 
     async def cp(self, session, **kwargs):
         return await self._gw_op(lambda gw: gw.cp(session=session,**kwargs))

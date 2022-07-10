@@ -303,6 +303,17 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         return await self.gateway.api_post(endpoint=endpoint, session=session, **kwargs)
     api_post = sync_wrapper(_api_post)
 
+    async def _api_get(self, endpoint, **kwargs):
+        session = await self.set_session()
+        res =  await self.gateway.api_get(endpoint=endpoint, session=session, **kwargs)
+        print(res.headers)
+        if res.headers['Content-Type'] == 'application/json':
+            res = await res.json()
+        elif res.headers['Content-Type'] == 'text/plain':
+            res = json.loads((await res.content.read()).decode())
+        return res
+    api_get = sync_wrapper(_api_get)
+
     async def _cp(self,path1, path2):
         session = await self.set_session()
         res = await self.gateway.cp(session=session, arg=[path1, path2])
@@ -352,6 +363,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         pin=True,
         chunker=262144, 
         return_json=True,
+        return_cid = True,
         **kwargs
     ):
         
@@ -386,12 +398,15 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         res = await self.gateway.api_post(endpoint='add', session=session, params=params, data=data, headers=headers)
         
         res =  await res.content.read()
+        print(res)
         res = list(map(lambda x: json.loads(x), filter(lambda x: bool(x),  res.decode().split('\n'))))
         res = list(filter(lambda x: isinstance(x, dict) and x.get('Name'), res))
+        res_hash = res[-1]["Hash"]
         
         if pin and not rpath:
             rpath='/'
         if rpath:
+            print()
             
             if  local_isdir:
                 await self._cp(path1=f'/ipfs/{res[-1]["Hash"]}', path2=rpath )
@@ -410,6 +425,10 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                 ipfs_path = f'/{rpath}/{cid_hash}'
                 await self._cp(path1=tmp_path, path2=final_path )
                 await self._rm_file(ipfs_path)
+        
+        
+        if return_cid:
+            return res_hash
         return res
 
     put = sync_wrapper(_put)
@@ -484,19 +503,14 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         session = self._session
         # shutil.rmtree(lpath)
         data = await self._cat(path=rpath)
-
-        path = lpath + rpath
-        dirpath = os.path.dirname(path)
-        if not os.path.isdir(dirpath):
-            os.makedirs(dirpath)
+        print(data, 'BRO')
         
-        print(path, lpath, rpath, 'BRUH', data)
-        f = open(path, mode='wb')
+        f = open(lpath, mode='wb')
         f.write(data)
         f.close()
 
     async def _get(
-        self, rpath, lpath, recursive=False, callback=_DEFAULT_CALLBACK, **kwargs
+        self, rpath, lpath, recursive=True, callback=_DEFAULT_CALLBACK, **kwargs
     ):
         """Copy file(s) to local.
 
@@ -516,10 +530,21 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
         rpath = self._strip_protocol(rpath)
         lpath = make_path_posix(lpath)
+
+        root_dir_lpath = lpath if os.path.isdir(lpath) else os.path.dirname(lpath)
+
         rpaths = await self._expand_path(rpath, recursive=recursive)
+
         lpaths = other_paths(rpaths, lpath)
         [os.makedirs(os.path.dirname(lp), exist_ok=True) for lp in lpaths]
         batch_size = kwargs.pop("batch_size", self.batch_size)
+
+        #TODO: not good for hidden files
+        lpaths = list(filter(lambda p: len(p.split('.')) == 2, lpaths))
+        rpaths = list(filter(lambda p: len(p.split('.')) == 2, rpaths))
+
+
+        print(lpaths,rpaths, 'POSIX')
 
         coros = []
         callback.set_size(len(lpaths))
