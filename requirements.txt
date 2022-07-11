@@ -1,3 +1,4 @@
 fsspec>=0.9.0
 requests
 aiohttp
+ipfshttpclient

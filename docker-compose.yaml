@@ -4,10 +4,20 @@ services:
      image: ipfs/go-ipfs:v0.7.0
      container_name: "ipfs"
      ports:
-       - 4001:4001
-       - 5001:5001
-       - 8080:8080
-       
+       - 4001:4001 # for the webui
+       - 5001:5001 # for the rtc (read/write)
+       - 8080:8080 # for the gateway (write)
+      
+  backend:
+    build:
+      dockerfile: Dockerfile.fsspec
+    container_name: backend
+    ports: 
+      - 8888:8888 # for the jupyte notebook
+
+    volumes:
+      - ./:/app/
     #  volumes:
     #    - ./dbdata/ipfs:/data/ipfs/
 
+    command: bash -c "./scripts/startup_backend.sh"

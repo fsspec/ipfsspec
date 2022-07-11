@@ -58,6 +58,7 @@ def test_rm(lpath=DEFAULT_LPATH, rpath = DEFAULT_RPATH):
 def test_get(lpath = DEFAULT_LPATH_DIR, rpath=DEFAULT_RPATH, output_dir = DEFAULT_OUTPUT_DIR):
     # local_dir_hash = fs_file.cat(path=lpath,  recursive=True)
     
+    fs.rm(rpath)
     cid = fs.put(lpath=lpath, rpath=rpath, recursive=True)
     fs.get(rpath=rpath, lpath=output_dir, recursive=True)
     
