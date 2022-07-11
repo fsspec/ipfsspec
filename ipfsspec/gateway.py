@@ -22,10 +22,14 @@ def get_default_gateways():
     except KeyError:
         return GATEWAYS
 
+
+import os
+IPFSHTTP_LOCAL_HOST = os.getenv('IPFSHTTP_LOCAL_HOST', '127.0.0.1')
+print(IPFSHTTP_LOCAL_HOST)
 class AsyncIPFSGatewayBase:
 
     DEFAULT_GATEWAY_MAP = {
-    'local': "http://127.0.0.1:8080",
+    'local': f"http://{IPFSHTTP_LOCAL_HOST}:8080",
     'public': "https://ipfs.io",
     'pinata': "https://gateway.pinata.cloud",
     'cloudflare': "https://cloudflare-ipfs.com",
