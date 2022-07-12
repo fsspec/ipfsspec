@@ -23,7 +23,6 @@ This Project supports the following functions in ffsspec. Because ipfs uses cont
 
 
 
-
 ## Supported Functions
 
 ### put

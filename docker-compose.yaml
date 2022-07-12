@@ -10,6 +10,7 @@ services:
       
   backend:
     build:
+      context: ./
       dockerfile: Dockerfile.fsspec
     container_name: backend
     ports: 
