@@ -71,7 +71,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     root = '/tmp/fspec/ipfs'
 
     def __init__(self, asynchronous=False,
-                 gateway_type='local',
+                 gateway_type='public',
                 loop=None, 
                 root = None,
                 client_kwargs={},
@@ -82,6 +82,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         self.gateway = None
         self.change_gateway_type = gateway_type
 
+        self.local_fs = AsyncFileSystem(loop=loop)
         if root:
             self.root = root
 
@@ -95,7 +96,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     @change_gateway_type.setter    
     def change_gateway_type(self, value):
         self.gateway_type = value
-        self.gateway = MultiGateway([AsyncIPFSGateway(url) for url in GATEWAY_MAP[self.gateway_type]])
+        self.gateway = MultiGateway([AsyncIPFSGateway(url=url, gateway_type=self.gateway_type) for url in GATEWAY_MAP[self.gateway_type]])
         print(f"Changed to {self.gateway_type} node")
 
     # @property
@@ -220,7 +221,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _ls(self, path='/', detail=True, recursive=False, **kwargs):
         # path = self._strip_protocol(path)
 
-        path = self.ensure_path(path=path)
         session = await self.set_session()
         res = await self.gateway.ls(session=session, path=path)
 
@@ -249,9 +249,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
     # def _store_path(self, path, hash):
 
-    async def pin(self,cid):
-        res = await self.gateway.api_post(endpoint='pin/add', session=session, params={'arg':cid})
-        return self.client.pin.add(cid)
 
 
     async def _is_pinned(self, cid):
@@ -263,14 +260,14 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     is_pinned = sync_wrapper(_is_pinned)
 
 
-    async def pin(self, cid, recursive=False, progress=False):
+    async def _pin(self, cid, recursive=False, progress=False):
         session = await self.set_session()
         res = await self.gateway.api_post(endpoint='pin/add', session=session, params={'arg':cid, 
                                                                      'recursive': recursive,
                                                                       'progress': progress})
         return bool(cid in pinned_cid_list)
 
-    pin = sync_wrapper(_is_pinned)
+    pin = sync_wrapper(_pin)
 
 
     async def _api_post(self, endpoint, **kwargs):
@@ -338,6 +335,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         chunker=262144, 
         return_json=True,
         return_cid = True,
+        wrap_with_directory=True,
         **kwargs
     ):
         
@@ -355,7 +353,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         params['chunker'] = f'size-{chunker}'
         params['pin'] = 'true' if pin else 'false'
         params.update(kwargs)
-        params['wrap-with-directory'] = 'true'
+        params['wrap-with-directory'] = 'true' if wrap_with_directory else 'false'
 
         local_isdir = os.path.isdir(lpath)
         local_isfile = os.path.isfile(lpath)
@@ -378,6 +376,8 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         res = list(map(lambda x: json.loads(x), filter(lambda x: bool(x),  res.decode().split('\n'))))
         res = list(filter(lambda x: isinstance(x, dict) and x.get('Name'), res))
         res_hash = res[-1]["Hash"]
+
+
         
         if pin and not rpath:
             rpath='/'
@@ -438,6 +438,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
             if await self._isdir(path=path):
                 recursive = True
 
+
             paths = await self._expand_path(path, recursive=recursive)
             
             async def _file_filter(p):
@@ -446,7 +447,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                     return p
                 else:
                     return False
-
             paths = [_ for _ in await asyncio.gather(*[ _file_filter(p) for p in paths]) if bool(_) ]
             coros = [self._cat_file(path, **kwargs) for path in paths]
             batch_size = batch_size or self.batch_size
@@ -457,18 +457,20 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                 ex = next(filter(is_exception, out), False)
                 if ex:
                     raise ex
+            
+            assert len(paths) == len(out)
             if (
-                len(paths) > 1
-                or isinstance(path, list)
-                or paths[0] != self._strip_protocol(path)
+                len(out) > 1
             ):
                 return {
                     k: v
                     for k, v in zip(paths, out)
                     if on_error != "omit" or not is_exception(v)
                 }
-            else:
+            elif len(out) == 1:
                 return out[0]
+            else:
+                raise Exception(f'WTF, out is not suppose to be <1 , len: {len(outs)}')
     async def _info(self, path, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
@@ -520,7 +522,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         session = self._session
         # shutil.rmtree(lpath)
         data = await self._cat(path=rpath)
-        
+        print(data, 'data')
         f = open(lpath, mode='wb')
         f.write(data)
         f.close()
@@ -545,21 +547,20 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         from fsspec.implementations.local import make_path_posix
 
         rpath = self._strip_protocol(rpath)
+        print(rpath, 'BRO')
         lpath = make_path_posix(lpath)
 
         root_dir_lpath = lpath if os.path.isdir(lpath) else os.path.dirname(lpath)
 
         rpaths = await self._expand_path(rpath, recursive=recursive)
-
         lpaths = other_paths(rpaths, lpath)
         [os.makedirs(os.path.dirname(lp), exist_ok=True) for lp in lpaths]
         batch_size = kwargs.pop("batch_size", self.batch_size)
 
         #TODO: not good for hidden files
-        lpaths = list(filter(lambda p: len(p.split('.')) == 2, lpaths))
-        rpaths = list(filter(lambda p: len(p.split('.')) == 2, rpaths))
-
-
+        # lpaths = list(filter(lambda f: self.local_fs.isfile(f),lpaths))
+        # rpaths = list(filter(lambda f: self.isfile(f),rpaths))
+        print(lpaths, rpaths, 'WTF')
 
         coros = []
         callback.set_size(len(lpaths))

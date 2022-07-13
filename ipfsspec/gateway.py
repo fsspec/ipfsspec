@@ -25,176 +25,8 @@ def get_default_gateways():
 
 import os
 
-# IPFSHTTP_LOCAL_HOST = os.getenv('IPFSHTTP_LOCAL_HOST', '127.0.0.1')
 
-class AsyncIPFSGatewayBase:
-
-    # DEFAULT_GATEWAY_MAP = {
-    # 'local': f"http://{IPFSHTTP_LOCAL_HOST}:8080",
-    # 'public': "https://ipfs.io",
-    # 'pinata': "https://gateway.pinata.cloud",
-    # 'cloudflare': "https://cloudflare-ipfs.com",
-    #  'dweb': "https://dweb.link",
-    # }
-
-    # DEFAULT_GATEWAYS = list(DEFAULT_GATEWAY_MAP.keys())
-    # DEFAULT_GATEWAY_TYPES = list(DEFAULT_GATEWAY_MAP.keys())
-
-    async def stat(self,session, path, **kwargs):
-        res = await self.api_get(endpoint="files/stat", session=session, arg=path, **kwargs)
-        self._raise_not_found_for_status(res, path)
-        return await res.json()
-
-
-    async def dag_get(self, session, path, **kwargs):
-        path = await self.resolve_mfs_path(session=session, path=path)
-        res =  await self.api_get(endpoint="dag/get", session=session, arg=path, **kwargs)
-        return res
-
-    async def file_info(self,session, path):
-        '''
-        Resolves the file info for hash or mfs path:
-        
-        params:
-            session: aiohttp session
-            path: cid or mfs path. Ifs mfs path then resolves to cid. 
-
-        
-        '''
-        info = {"name": path}
-        path = await self.resolve_mfs_path(session=session, path=path)
-
-        headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
-        res = await self.cid_head(session=session, path=path, headers=headers)
-        async with res:
-            self._raise_not_found_for_status(res, path)
-            if res.status != 200:
-                # TODO: maybe handle 301 here
-                raise FileNotFoundError(path)
-            if "Content-Length" in res.headers:
-                info["size"] = int(res.headers["Content-Length"])
-            elif "Content-Range" in res.headers:
-                info["size"] = int(res.headers["Content-Range"].split("/")[1])
-            if "ETag" in res.headers:
-                etag = res.headers["ETag"].strip("\"")
-                info["ETag"] = etag
-                if etag.startswith("DirIndex"):
-                    info["type"] = "directory"
-                    info["CID"] = etag.split("-")[-1]
-                else:
-                    info["type"] = "file"
-                    info["CID"] = etag
-
-        return info
-
-    async def resolve_mfs_path(self, session, path):
-        # converts mfs to cid if it exists. If it doesnt, then it returns the original cid
-        
-        res = await self.api_post(endpoint='files/stat', session=session, arg=path)
-        mfs_hash = (await res.json()).get('Hash')
-        if mfs_hash:
-            path = mfs_hash
-        
-        return path
-    
-    async def cat(self, session, path):
-        
-        path = await self.resolve_mfs_path(session=session, path=path)        
-        res = await self.api_get(endpoint='cat', session=session, arg=path)
-
-        async with res:
-            self._raise_not_found_for_status(res, path)
-            if res.status != 200:
-                raise FileNotFoundError(path)
-            return await res.read()
-
-    async def add(self, session, path, **kwargs):
-        res = await self.api_get(endpoint='add', session=session, path=path, **kwargs)
-        async with res:
-            self._raise_not_found_for_status(res, path)
-            if res.status != 200:
-                raise FileNotFoundError(path)
-            return await res.read()
-
-    
-    async def pin(self, session, cid, recursive=False, progress=False, **kwargs):
-        kwargs['params'] = kwargs.get('params', {})
-        kwargs['params'] = dict(arg=cid, recursive= recursive,progress= progress)
-        res = await self.api_post(endpoint='pin/add', session=session ,
-                                          arg=cid, recursive= recursive,progress= progress, **kwargs)
-        return bool(cid in pinned_cid_list)
-
-
-    async def dag_get(self, session,  **kwargs):
-        kwargs['params'] = kwargs.get('params', {})
-        kwargs['params'] = dict(arg=cid, recursive= recursive,progress= progress)
-        res = await self.api_post(endpoint='dag/get', session=session , **kwargs)
-        return bool(cid in pinned_cid_list)
-
-
-
-    async def cp(self, session,  **kwargs):
-        
-        res = await self.api_post(endpoint="files/cp", session=session, arg=kwargs['arg'])
-        
-        res= await res.json()
-        return res
-
-    async def ls(self,session, path, **kwargs):
-
-        # if await self._in_mfs(session=session, path=path):
-
-        res = await self.api_post(endpoint="files/ls", session=session, arg=path, long='true')
-        
-   
-        resdata = await res.json()
-        # self._raise_not_found_for_status(res, path)
-
-     
-
-        if resdata.get('Entries'):
-            links = resdata["Entries"]
-        else:
-            if path[0] == '/':
-                path = path[1:]
-            res = await self.api_get(endpoint="ls", session=session, arg=path)
-            
-
-            # self._raise_not_found_for_status(res, path)
-            resdata = await res.json()
-
-            if resdata.get('Type') == 'error':
-                return []
-            links = resdata['Objects'][0]['Links']
-
-        types = {1: "directory", 2: "file", 0: 'file'}
-        if path[-1] != '/':
-            path += '/'
-
-
-        return [{
-                    "name": path  + link["Name"],
-                    "CID": link["Hash"],
-                    "type": types[link["Type"]],
-                    "size": link["Size"],
-                } for link in links]
-
-    def _raise_not_found_for_status(self, response, url):
-        """
-        Raises FileNotFoundError for 404s, otherwise uses raise_for_status.
-        """
-        
-        if response.status == 404:
-            raise FileNotFoundError(url)
-        elif response.status == 400:
-            raise FileNotFoundError(url)
-        elif response.status == 500:
-
-            raise FileNotFoundError( f'{url} ERROR ({response.status})')
-        response.raise_for_status()
-
-
-class AsyncIPFSGateway(AsyncIPFSGatewayBase):
+class AsyncIPFSGateway:
 
     resolution = "path"
 
@@ -311,10 +143,177 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
                 f.write(data.encode('utf-8'))    
 
 
+    # DEFAULT_GATEWAY_MAP = {
+    # 'local': f"http://{IPFSHTTP_LOCAL_HOST}:8080",
+    # 'public': "https://ipfs.io",
+    # 'pinata': "https://gateway.pinata.cloud",
+    # 'cloudflare': "https://cloudflare-ipfs.com",
+    #  'dweb': "https://dweb.link",
+    # }
+
+
+    # DEFAULT_GATEWAYS = list(DEFAULT_GATEWAY_MAP.keys())
+    # DEFAULT_GATEWAY_TYPES = list(DEFAULT_GATEWAY_MAP.keys())
+
+    async def stat(self,session, path, **kwargs):
+        res = await self.api_get(endpoint="files/stat", session=session, arg=path, **kwargs)
+        self._raise_not_found_for_status(res, path)
+        return await res.json()
+
+
+    async def dag_get(self, session, path, **kwargs):
+        path = await self.resolve_mfs_path(session=session, path=path)
+        res =  await self.api_get(endpoint="dag/get", session=session, arg=path, **kwargs)
+        return res
+
+    async def file_info(self,session, path):
+        '''
+        Resolves the file info for hash or mfs path:
+        
+        params:
+            session: aiohttp session
+            path: cid or mfs path. Ifs mfs path then resolves to cid. 
+
+        
+        '''
+        info = {"name": path}
+        path = await self.resolve_mfs_path(session=session, path=path)
+        
+        
+        res = await self.api_get(endpoint='ls',session=session, arg=path)
+        print(await res.json(), 'wtf')
+        headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
+        res = await self.cid_head(session=session, path=path, headers=headers)
+        
+        async with res:
+            self._raise_not_found_for_status(res, path)
+            if res.status != 200:
+                # TODO: maybe handle 301 here
+                raise FileNotFoundError(path)
+            if "Content-Length" in res.headers:
+                info["size"] = int(res.headers["Content-Length"])
+            elif "Content-Range" in res.headers:
+                info["size"] = int(res.headers["Content-Range"].split("/")[1])
+            if "ETag" in res.headers:
+                etag = res.headers["ETag"].strip("\"")
+                info["ETag"] = etag
+                if etag.startswith("DirIndex"):
+                    info["type"] = "directory"
+                    info["CID"] = etag.split("-")[-1]
+                else:
+                    info["type"] = "file"
+                    info["CID"] = etag
+        print(info)
+        return info
+
+    async def resolve_mfs_path(self, session, path):
+        # converts mfs to cid if it exists. If it doesnt, then it returns the original cid
+
+        if self.gateway_type in ['local']:
+            res = await self.api_post(endpoint='files/stat', session=session, arg=path)
+            mfs_hash = (await res.json()).get('Hash')
+            
+            if mfs_hash:
+                path = mfs_hash
+        
+        return path
+    
+    async def cat(self, session, path):
+        
+        path = await self.resolve_mfs_path(session=session, path=path)        
+        res = await self.api_get(endpoint='cat', session=session, arg=path)
+
+        async with res:
+            self._raise_not_found_for_status(res, path)
+            if res.status != 200:
+                raise FileNotFoundError(path)
+            return await res.read()
+
+    async def add(self, session, path, **kwargs):
+        res = await self.api_get(endpoint='add', session=session, path=path, **kwargs)
+        async with res:
+            self._raise_not_found_for_status(res, path)
+            if res.status != 200:
+                raise FileNotFoundError(path)
+            return await res.read()
+
+    
+    async def pin(self, session, cid, recursive=False, progress=False, **kwargs):
+        kwargs['params'] = kwargs.get('params', {})
+        kwargs['params'] = dict(arg=cid, recursive= recursive,progress= progress)
+        res = await self.api_post(endpoint='pin/add', session=session ,
+                                          arg=cid, recursive= recursive,progress= progress, **kwargs)
+        return bool(cid in pinned_cid_list)
+
+
+    async def dag_get(self, session,  **kwargs):
+        kwargs['params'] = kwargs.get('params', {})
+        kwargs['params'] = dict(arg=cid, recursive= recursive,progress= progress)
+        res = await self.api_post(endpoint='dag/get', session=session , **kwargs)
+        return bool(cid in pinned_cid_list)
+
+
+
+    async def cp(self, session,  **kwargs):
+        
+        res = await self.api_post(endpoint="files/cp", session=session, arg=kwargs['arg'])
+        
+        res= await res.json()
+        return res
+
+    async def ls(self,session, path, **kwargs):
+
+        # if await self._in_mfs(session=session, path=path):
+        resdata = {}
+        if self.gateway_type in ['local']:
+            res = await self.api_post(endpoint="files/ls", session=session, arg=path, long='true')
+        # self._raise_not_found_for_status(res, path)
+            resdata = await res.json()
+
+        if resdata.get('Entries'):
+            links = resdata["Entries"]
+        else:
+            if path[0] == '/':
+                path = path[1:]
+            res = await self.api_get(endpoint="ls", session=session, arg=path)
+            
+
+            # self._raise_not_found_for_status(res, path)
+            resdata = await res.json()
+
+            if resdata.get('Type') == 'error':
+                return []
+            links = resdata['Objects'][0]['Links']
+
+        types = {1: "directory", 2: "file", 0: 'file'}
+        if path[-1] != '/':
+            path += '/'
+
+
+        return [{
+                    "name": path  + link["Name"],
+                    "CID": link["Hash"],
+                    "type": types[link["Type"]],
+                    "size": link["Size"],
+                } for link in links]
+
+    def _raise_not_found_for_status(self, response, url):
+        """
+        Raises FileNotFoundError for 404s, otherwise uses raise_for_status.
+        """
+        
+        if response.status == 404:
+            raise FileNotFoundError(url)
+        elif response.status == 400:
+            raise FileNotFoundError(url)
+        elif response.status == 500:
+
+            raise FileNotFoundError( f'{url} ERROR ({response.status})')
+        response.raise_for_status()
+
 
     def __str__(self):
         return f"GW({self.url})"
-
 
 class GatewayState:
     def __init__(self):
@@ -353,7 +352,10 @@ class GatewayState:
         self.next_request_time = time.monotonic() + 1
 
 
-class MultiGateway(AsyncIPFSGatewayBase):
+
+
+
+class MultiGateway(AsyncIPFSGateway):
     def __init__(self, gws, max_backoff_rounds=40):
         self.gws = [(GatewayState(), gw) for gw in gws]
         self.max_backoff_rounds = max_backoff_rounds
@@ -427,6 +429,10 @@ class MultiGateway(AsyncIPFSGatewayBase):
 
     async def save_links(self, session, **kwargs):
         return await self._gw_op(lambda gw: gw.save_links(session=session,**kwargs))
+
+    async def file_info(self, session, **kwargs):
+        return await self._gw_op(lambda gw: gw.file_info(session=session,**kwargs))
+
 
 
     def state_report(self):
