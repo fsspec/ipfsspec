@@ -24,20 +24,21 @@ def get_default_gateways():
 
 
 import os
-IPFSHTTP_LOCAL_HOST = os.getenv('IPFSHTTP_LOCAL_HOST', '127.0.0.1')
-print(IPFSHTTP_LOCAL_HOST)
+# IPFSHTTP_LOCAL_HOST = os.getenv('IPFSHTTP_LOCAL_HOST', '127.0.0.1')
+# print(IPFSHTTP_LOCAL_HOST)
+
 class AsyncIPFSGatewayBase:
 
-    DEFAULT_GATEWAY_MAP = {
-    'local': f"http://{IPFSHTTP_LOCAL_HOST}:8080",
-    'public': "https://ipfs.io",
-    'pinata': "https://gateway.pinata.cloud",
-    'cloudflare': "https://cloudflare-ipfs.com",
-     'dweb': "https://dweb.link",
-    }
+    # DEFAULT_GATEWAY_MAP = {
+    # 'local': f"http://{IPFSHTTP_LOCAL_HOST}:8080",
+    # 'public': "https://ipfs.io",
+    # 'pinata': "https://gateway.pinata.cloud",
+    # 'cloudflare': "https://cloudflare-ipfs.com",
+    #  'dweb': "https://dweb.link",
+    # }
 
-    DEFAULT_GATEWAYS = list(DEFAULT_GATEWAY_MAP.keys())
-    DEFAULT_GATEWAY_TYPES = list(DEFAULT_GATEWAY_MAP.keys())
+    # DEFAULT_GATEWAYS = list(DEFAULT_GATEWAY_MAP.keys())
+    # DEFAULT_GATEWAY_TYPES = list(DEFAULT_GATEWAY_MAP.keys())
 
     async def stat(self,session, path, **kwargs):
         res = await self.api_get(endpoint="files/stat", session=session, arg=path, **kwargs)
@@ -97,8 +98,8 @@ class AsyncIPFSGatewayBase:
         return path
     
     async def cat(self, session, path):
-        path = await self.resolve_mfs_path(session=session, path=path)
         
+        path = await self.resolve_mfs_path(session=session, path=path)        
         res = await self.api_get(endpoint='cat', session=session, arg=path)
 
         async with res:
@@ -163,13 +164,7 @@ class AsyncIPFSGatewayBase:
 
             if resdata.get('Type') == 'error':
                 return []
-            
-
             links = resdata['Objects'][0]['Links']
-
-
-
-
 
         types = {1: "directory", 2: "file", 0: 'file'}
         if path[-1] != '/':
