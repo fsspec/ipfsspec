@@ -17,7 +17,7 @@ from fsspec.exceptions import FSTimeoutError
 from fsspec.implementations.local import LocalFileSystem
 from fsspec.spec import AbstractBufferedFile
 from fsspec.utils import is_exception, other_paths
-from .gateway import MultiGateway
+from .gateway import MultiGateway, AsyncIPFSGateway
 from .utils import dict_get, dict_put, dict_hash,dict_equal
 
 import logging
@@ -29,16 +29,12 @@ class RequestsTooQuick(OSError):
     def __init__(self, retry_after=None):
         self.retry_after = retry_after
 
-
-
-
 DEFAULT_GATEWAY = None
-
 
 import requests
 from requests.exceptions import HTTPError
     
-class AsyncRequestSession:
+class AsyncRequestSession: # this function is not used anywhere?
     def __init__(self, loop=None, 
                 adapter=dict(pool_connections=100, pool_maxsize=100), 
                 **kwargs):
@@ -57,6 +53,18 @@ class AsyncRequestSession:
 
     async def close(self):
         pass
+
+IPFSHTTP_LOCAL_HOST = os.getenv('IPFSHTTP_LOCAL_HOST', '127.0.0.1')
+
+GATEWAY_MAP = {
+    'local': [f"http://{IPFSHTTP_LOCAL_HOST}:8080"],
+    # 'infura': ['https://ipfs.infura.io:5001'],
+    'public': ["https://ipfs.io",
+               "https://gateway.pinata.cloud",
+               "https://cloudflare-ipfs.com",
+               "https://dweb.link"]
+}
+
 class AsyncIPFSFileSystem(AsyncFileSystem):
     sep = "/"
     protocol = "ipfs"
@@ -71,20 +79,30 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         super().__init__(self, asynchronous=asynchronous, loop=loop, **storage_options,)
         self._session = None
         self.client_kwargs=client_kwargs
-        
+        self.gateway = None
+        self.change_gateway_type = gateway_type
+
         if root:
             self.root = root
-
-        self.gateway_type = gateway_type
 
         if not asynchronous:
             sync(self.loop, self.set_session)
 
     @property
-    def gateway(self, gateway_type = None):
-        if gateway_type is None:
-            gateway_type = self.gateway_type
-        return MultiGateway.get_gateway(gateway_type=self.gateway_type)
+    def change_gateway_type(self):
+        return self.gateway_type
+
+    @change_gateway_type.setter    
+    def change_gateway_type(self, value):
+        self.gateway_type = value
+        self.gateway = MultiGateway([AsyncIPFSGateway(url) for url in GATEWAY_MAP[self.gateway_type]])
+        print(f"Changed to {self.gateway_type} node")
+
+    # @property
+    # def gateway(self, gateway_type = None):
+    #     if gateway_type is None:
+    #         gateway_type = self.gateway_type
+    #     return MultiGateway.get_gateway(gateway_type=self.gateway_type)
 
     @staticmethod
     async def get_client(**kwargs):
@@ -136,6 +154,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     
     def __del__(self):
         self.close_session(loop=self.loop, session=self._session)
+
     async def _expand_path(self, path, recursive=False, maxdepth=None):
         if isinstance(path, str):
             out = await self._expand_path([path], recursive, maxdepth)
@@ -165,6 +184,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         if not out:
             raise FileNotFoundError(path)
         return list(sorted(out))
+
     async def _rm_file(self ,path, gc=True, **kwargs):
         session = await self.set_session()
         response = await self.gateway.api_post(session=session, endpoint='files/rm', recursive='true', arg=path)
@@ -189,44 +209,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         
         return path
 
-    
-    async def _cat(
-        self, path, recursive=False, on_error="raise", batch_size=None, **kwargs
-    ):
-        if await self._isdir(path=path):
-            recursive = True
-
-
-        paths = await self._expand_path(path, recursive=recursive)
-        
-        async def _file_filter(p):
-            # FIX: returns path if file, else returns False
-            if await self._isfile(p):
-                return p
-            else:
-                return False
-
-        paths = [_ for _ in await asyncio.gather(*[ _file_filter(p) for p in paths]) if bool(_) ]
-        coros = [self._cat_file(path, **kwargs) for path in paths]
-        batch_size = batch_size or self.batch_size
-        out = await _run_coros_in_chunks(
-            coros, batch_size=batch_size, nofiles=True, return_exceptions=True
-        )
-        if on_error == "raise":
-            ex = next(filter(is_exception, out), False)
-            if ex:
-                raise ex
-
-        assert len(paths) == len(out)
-        if len(paths) == 1:
-            return out[0]
-        elif len(paths) > 1:
-            return {
-                k: v
-                for k, v in zip(paths, out)
-                if on_error != "omit" or not is_exception(v)
-            }
-
 
     async def  _stat(self, path):
         session = await self.set_session()
@@ -235,7 +217,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         return res
     stat = sync_wrapper(_stat)
 
-    
     async def _ls(self, path='/', detail=True, recursive=False, **kwargs):
         # path = self._strip_protocol(path)
 
@@ -263,9 +244,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
             return res
         else:
             return [r["name"] for r in res]
-
-
-
 
     ls = sync_wrapper(_ls)
 
@@ -452,7 +430,45 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         
         session = await self.set_session()
         return (await self.gateway.cat(session=session, path=path))[start:end]
+    
+    async def _cat(
+            self, path, recursive=False, on_error="raise", batch_size=None, **kwargs
+        ):
+                
+            if await self._isdir(path=path):
+                recursive = True
 
+            paths = await self._expand_path(path, recursive=recursive)
+            
+            async def _file_filter(p):
+                # FIX: returns path if file, else returns False
+                if await self._isfile(p):
+                    return p
+                else:
+                    return False
+
+            paths = [_ for _ in await asyncio.gather(*[ _file_filter(p) for p in paths]) if bool(_) ]
+            coros = [self._cat_file(path, **kwargs) for path in paths]
+            batch_size = batch_size or self.batch_size
+            out = await _run_coros_in_chunks(
+                coros, batch_size=batch_size, nofiles=True, return_exceptions=True
+            )
+            if on_error == "raise":
+                ex = next(filter(is_exception, out), False)
+                if ex:
+                    raise ex
+            if (
+                len(paths) > 1
+                or isinstance(path, list)
+                or paths[0] != self._strip_protocol(path)
+            ):
+                return {
+                    k: v
+                    for k, v in zip(paths, out)
+                    if on_error != "omit" or not is_exception(v)
+                }
+            else:
+                return out[0]
     async def _info(self, path, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
