@@ -2,7 +2,7 @@ import datetime
 import json
 from mockserver import mock_servers
 
-from ipfsspec.core import IPFSFileSystem
+from ipfsspec import AsyncIPFSFileSystem
 
 from http.server import BaseHTTPRequestHandler
 import urllib.parse

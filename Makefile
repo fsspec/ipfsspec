@@ -10,7 +10,7 @@ ipfs:
 	docker compose up -d ipfs 
 freeze_env:
 	pip freeze > requirements.txt
-test:
+test_ipfs:
 	python test/test_ipfs_async.py
 
 local_jupyter:

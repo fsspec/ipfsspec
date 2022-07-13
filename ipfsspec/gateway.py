@@ -25,7 +25,6 @@ def get_default_gateways():
 
 import os
 IPFSHTTP_LOCAL_HOST = os.getenv('IPFSHTTP_LOCAL_HOST', '127.0.0.1')
-print(IPFSHTTP_LOCAL_HOST)
 class AsyncIPFSGatewayBase:
 
     DEFAULT_GATEWAY_MAP = {
@@ -129,6 +128,7 @@ class AsyncIPFSGatewayBase:
         kwargs['params'] = dict(arg=cid, recursive= recursive,progress= progress)
         res = await self.api_post(endpoint='dag/get', session=session , **kwargs)
         return bool(cid in pinned_cid_list)
+
 
 
     async def cp(self, session,  **kwargs):
@@ -440,11 +440,7 @@ class MultiGateway(AsyncIPFSGatewayBase):
         return "Multi-GW(" + ", ".join(str(gw) for _, gw in self.gws) + ")"
 
     @classmethod
-    def get_gateway(cls, gateway_type='local'):
-        return cls([AsyncIPFSGateway(gateway_type=gateway_type)])
-
-    @classmethod
-    def get_gateways(cls, gateway_types=['local', 'public']):
+    def get_gateway(cls, gateway_type=['local']):
         if isinstance(gateway_type, str):
             gateway_type = [gateway_type]
-        return cls([AsyncIPFSGateway(gateway_type(gateway_type=g))  for g in gateway_type])
+        return cls([AsyncIPFSGateway(gateway_type=gwt) for gwt in gateway_type])

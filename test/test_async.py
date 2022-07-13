@@ -1,5 +1,6 @@
 import pytest
-from ipfsspec.async_ipfs import AsyncIPFSGateway, MultiGateway, AsyncIPFSFileSystem
+from ipfsspec import AsyncIPFSFileSystem
+from ipfsspec.gateway import  AsyncIPFSGateway, MultiGateway
 import aiohttp
 
 TEST_ROOT = "QmW3CrGFuFyF3VH1wvrap4Jend5NRTgtESDjuQ7QhHD5dd"

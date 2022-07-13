@@ -76,7 +76,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
             self.root = root
 
         self.gateway_type = gateway_type
-        self.fs_local = LocalFileSystem(auto_mkdir=True)
 
         if not asynchronous:
             sync(self.loop, self.set_session)
@@ -217,18 +216,17 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
             ex = next(filter(is_exception, out), False)
             if ex:
                 raise ex
-        if (
-            len(paths) > 1
-            or isinstance(path, list)
-            or paths[0] != self._strip_protocol(path)
-        ):
+
+        assert len(paths) == len(out)
+        if len(paths) == 1:
+            return out[0]
+        elif len(paths) > 1:
             return {
                 k: v
                 for k, v in zip(paths, out)
                 if on_error != "omit" or not is_exception(v)
             }
-        else:
-            return out[0]
+
 
     async def  _stat(self, path):
         session = await self.set_session()
@@ -372,6 +370,9 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         if 'path' in kwargs:
             lpath = kwargs.pop('path')
 
+        if rpath[0] != '/' and len(rpath) > 1:
+            rpath = '/' + rpath 
+
         params = {}
         params['chunker'] = f'size-{chunker}'
         params['pin'] = 'true' if pin else 'false'
@@ -415,6 +416,8 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                 final_path = f'{rpath}/{os.path.basename(lpath)}'
                 if not (await self._isdir(rdir)):
                     await self._mkdir(path=rdir)
+
+
                 if rdir[-1] != '/' and len(rdir) > 1:
                     rdir = rdir + '/'
                 await self._cp(path1=ipfs_path, path2=rdir  )
@@ -445,6 +448,8 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
     async def _cat_file(self, path, start=None, end=None, **kwargs):
         path = self._strip_protocol(path)
+        
+        
         session = await self.set_session()
         return (await self.gateway.cat(session=session, path=path))[start:end]
 
