@@ -10,6 +10,7 @@ from fsspec.callbacks import _DEFAULT_CALLBACK
 from glob import has_magic
 from .buffered_file import IPFSBufferedFile
 import json
+from copy import deepcopy
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 from ipfshttpclient.multipart import stream_directory, stream_files #needed to prepare files/directory to be sent through http
 import os
@@ -179,6 +180,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                     
                     rec = set(await self._find(p, maxdepth=maxdepth, withdirs=True))
                     out |= rec
+
                 if p not in out and (recursive is False or (await self._exists(p))):
                     # should only check once, for the root
                     out.add(p)
@@ -191,6 +193,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         response = await self.gateway.api_post(session=session, endpoint='files/rm', recursive='true', arg=path)
         if gc:
             await self.gateway.api_post(session=session, endpoint='repo/gc')
+        return path
 
     # async def _rm(self, path, recursion=True , gc=True,**kwargs):
     #     recursion='true' if recursion else 'false'
@@ -417,9 +420,14 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _rm(self, path, recursive=False, batch_size=None, **kwargs):
         # TODO: implement on_error
         batch_size = batch_size or self.batch_size
-        path = await self._expand_path(path, recursive=recursive)
+
+        try:
+            paths = await self._expand_path([path], recursive=recursive)
+        except Exception:
+            return []
+        # paths = await self.filter_files(paths)
         return await _run_coros_in_chunks(
-            [self._rm_file(p, **kwargs) for p in path],
+            [self._rm_file(p, **kwargs) for p in paths],
             batch_size=batch_size,
             nofiles=True,
         )
@@ -431,23 +439,26 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         session = await self.set_session()
         return (await self.gateway.cat(session=session, path=path))[start:end]
     
+    async def filter_files(self, paths):
+        async def _file_filter(p):
+            # FIX: returns path if file, else returns False
+            if await self._isfile(p):
+                return p
+            else:
+                return False
+        paths = [_ for _ in await asyncio.gather(*[ _file_filter(p) for p in paths]) if bool(_) ]
+        return paths
     async def _cat(
             self, path, recursive=False, on_error="raise", batch_size=None, **kwargs
         ):
+
                 
             if await self._isdir(path=path):
                 recursive = True
 
 
             paths = await self._expand_path(path, recursive=recursive)
-            
-            async def _file_filter(p):
-                # FIX: returns path if file, else returns False
-                if await self._isfile(p):
-                    return p
-                else:
-                    return False
-            paths = [_ for _ in await asyncio.gather(*[ _file_filter(p) for p in paths]) if bool(_) ]
+            paths = await self.filter_files(paths)
             coros = [self._cat_file(path, **kwargs) for path in paths]
             batch_size = batch_size or self.batch_size
             out = await _run_coros_in_chunks(
@@ -522,7 +533,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         session = self._session
         # shutil.rmtree(lpath)
         data = await self._cat(path=rpath)
-        print(data, 'data')
         f = open(lpath, mode='wb')
         f.write(data)
         f.close()
@@ -544,10 +554,14 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         constructor, or for all instances by setting the "gather_batch_size" key
         in ``fsspec.config.conf``, falling back to 1/8th of the system limit .
         """
+
+
+        if len(lpath.split('.')) == 1 and len(lpath) > 1 and lpath[-1] != '/' :
+            lpath += '/'
+
         from fsspec.implementations.local import make_path_posix
 
         rpath = self._strip_protocol(rpath)
-        print(rpath, 'BRO')
         lpath = make_path_posix(lpath)
 
         root_dir_lpath = lpath if os.path.isdir(lpath) else os.path.dirname(lpath)
@@ -556,12 +570,23 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         lpaths = other_paths(rpaths, lpath)
         [os.makedirs(os.path.dirname(lp), exist_ok=True) for lp in lpaths]
         batch_size = kwargs.pop("batch_size", self.batch_size)
+        temp_rpaths, temp_lpaths = [], []
 
-        #TODO: not good for hidden files
+        for i,lp in enumerate(lpaths):
+            if len(lp.split('.')) == 2:
+                temp_rpaths.append(rpaths[i])
+                temp_lpaths.append(lpaths[i])
+            
+            else:
+                if await self._isfile(rpaths[i]):
+                    temp_lpaths.append(os.path.join(lpaths[i]+''))
+                    temp_rpaths.append(rpaths[i])
+
+        rpaths = temp_rpaths
+        lpaths = temp_lpaths
+        # #TODO: not good for hidden files
         # lpaths = list(filter(lambda f: self.local_fs.isfile(f),lpaths))
-        # rpaths = list(filter(lambda f: self.isfile(f),rpaths))
-        print(lpaths, rpaths, 'WTF')
-
+        
         coros = []
         callback.set_size(len(lpaths))
         for lpath, rpath in zip(lpaths, rpaths):

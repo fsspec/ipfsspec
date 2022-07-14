@@ -181,7 +181,6 @@ class AsyncIPFSGateway:
         
         
         res = await self.api_get(endpoint='ls',session=session, arg=path)
-        print(await res.json(), 'wtf')
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
         res = await self.cid_head(session=session, path=path, headers=headers)
         
@@ -203,7 +202,6 @@ class AsyncIPFSGateway:
                 else:
                     info["type"] = "file"
                     info["CID"] = etag
-        print(info)
         return info
 
     async def resolve_mfs_path(self, session, path):
