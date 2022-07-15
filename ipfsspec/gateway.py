@@ -174,12 +174,10 @@ class AsyncIPFSGateway:
             session: aiohttp session
             path: cid or mfs path. Ifs mfs path then resolves to cid. 
 
-        
         '''
         info = {"name": path}
         path = await self.resolve_mfs_path(session=session, path=path)
-        
-        
+
         res = await self.api_get(endpoint='ls',session=session, arg=path)
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
         res = await self.cid_head(session=session, path=path, headers=headers)

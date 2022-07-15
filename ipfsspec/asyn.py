@@ -379,8 +379,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         res = list(map(lambda x: json.loads(x), filter(lambda x: bool(x),  res.decode().split('\n'))))
         res = list(filter(lambda x: isinstance(x, dict) and x.get('Name'), res))
         res_hash = res[-1]["Hash"]
-
-
         
         if pin and not rpath:
             rpath='/'
@@ -448,15 +446,13 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                 return False
         paths = [_ for _ in await asyncio.gather(*[ _file_filter(p) for p in paths]) if bool(_) ]
         return paths
+
     async def _cat(
             self, path, recursive=False, on_error="raise", batch_size=None, **kwargs
         ):
-
-                
             if await self._isdir(path=path):
                 recursive = True
-
-
+            
             paths = await self._expand_path(path, recursive=recursive)
             paths = await self.filter_files(paths)
             coros = [self._cat_file(path, **kwargs) for path in paths]
@@ -482,6 +478,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
                 return out[0]
             else:
                 raise Exception(f'WTF, out is not suppose to be <1 , len: {len(outs)}')
+
     async def _info(self, path, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
@@ -558,7 +555,6 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
         if len(lpath.split('.')) == 1 and len(lpath) > 1 and lpath[-1] != '/' :
             lpath += '/'
-
         from fsspec.implementations.local import make_path_posix
 
         rpath = self._strip_protocol(rpath)
@@ -567,8 +563,13 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         root_dir_lpath = lpath if os.path.isdir(lpath) else os.path.dirname(lpath)
 
         rpaths = await self._expand_path(rpath, recursive=recursive)
-        lpaths = other_paths(rpaths, lpath)
-        [os.makedirs(os.path.dirname(lp), exist_ok=True) for lp in lpaths]
+        
+        if len(lpath.split('.')) == 1:
+            lpaths = other_paths(rpaths, lpath)
+            [os.makedirs(os.path.dirname(lp), exist_ok=True) for lp in lpaths]
+        else:
+            lpaths = [lpath]
+
         batch_size = kwargs.pop("batch_size", self.batch_size)
         temp_rpaths, temp_lpaths = [], []
 
