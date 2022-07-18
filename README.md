@@ -1,6 +1,6 @@
 # ipfsspec
 
-A readonly implementation of fsspec for IPFS.
+A read and write implementation of fsspec for IPFS.
 
 This Project supports the following functions in ffsspec. Because ipfs uses content hashes we treat the Mutable File System as a proxy for saving files in a unix format while also storing the ipfs object as a cid. This allows for ipfs to interoperate with other 
 
