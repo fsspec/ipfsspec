@@ -359,7 +359,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         params['wrap-with-directory'] = 'true' if wrap_with_directory else 'false'
 
 
-        assert os.path.exists(lpath), f'{lpath} does not exist'
+        assert os.path.exists(lpath), f'{lpath} does not exists'
         local_isdir = os.path.isdir(lpath)
         local_isfile = os.path.isfile(lpath)
 
@@ -474,11 +474,14 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
             if (
                 len(out) >= 1
             ):
-                return {
-                    k: v
-                    for k, v in zip(paths, out)
-                    if on_error != "omit" or not is_exception(v)
-                }
+                if await self._isdir(path):
+                    return {
+                        k: v
+                        for k, v in zip(paths, out)
+                        if on_error != "omit" or not is_exception(v)
+                    }
+                else:
+                    return out[0]
 
             else:
                 raise Exception(f'WTF, out is not suppose to be <1 , len: {len(out)}')
