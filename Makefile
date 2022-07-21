@@ -9,7 +9,7 @@ backend:
 ipfs: 
 	docker compose up -d ipfs 
 freeze_env:
-	pip freeze > requirements.txt
+	pip freeze > requirements-debug.txt
 test_ipfs:
 	python test/test_ipfs_async.py
 
