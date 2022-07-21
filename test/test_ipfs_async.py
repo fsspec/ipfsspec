@@ -67,16 +67,32 @@ def test_rm(lpath=DEFAULT_LPATH, rpath = DEFAULT_RPATH):
 
 
 
-def test_cat(lpath = DEFAULT_LPATH, rpath=DEFAULT_RPATH, output_dir = DEFAULT_OUTPUT_DIR):
+def test_cat(lpath = 'test/data/input', rpath='/test'):
     # local_dir_hash = fs.local.cat(path=lpath,  recursive=True)
     
     fs.ipfs.change_gateway_type = 'local'
     # fs.ipfs.rm(rpath)
+
+    # lpath = os.path.dirname(lpath)
+    # local_bytes = fs.local.cat(lpath, recursive=True)
+    print(lpath, rpath, 'BRO')
     
-    local_bytes = fs.local.cat(lpath)
+
     cid = fs.ipfs.put(lpath=lpath, rpath=rpath)
-    ipfs_bytes= fs.ipfs.cat(cid)
-    assert ipfs_bytes==local_bytes, f"ipfs: {ipfs_bytes} != local: {local_bytes}"
+
+
+    # print(fs.ipfs.ls(rpath, detail=False), 'ls')
+    # fs.ipfs.rm(path=rpath, recusive=True)
+    # print(fs.ipfs.ls(rpath, detail=False), 'ls')
+
+    ipfs_bytes_1= fs.ipfs.cat(cid+'/bruh.txt', recursive=True)
+    ipfs_bytes_2 = fs.ipfs.cat(rpath, recursive=True)
+
+    print(ipfs_bytes_1)
+    print(ipfs_bytes_2)
+    
+    # print(ipfs_bytes_1, ipfs_bytes_2, ipfs_bytes_2==ipfs_bytes_1)
+    # assert ipfs_bytes==local_bytes, f"ipfs: {ipfs_bytes} != local: {local_bytes}"
 
 @pytest.mark.parametrize("mode", [ "file1", 'file2', 'folder' ])
 
@@ -184,5 +200,6 @@ def test_get_cid(mode, gateway_type):
 
 
 # test_get_public('folder')
-# test_cat()
+test_cat()
 # test_cat_public()
+

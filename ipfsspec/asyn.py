@@ -72,7 +72,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     root = '/tmp/fspec/ipfs'
 
     def __init__(self, asynchronous=False,
-                 gateway_type='public',
+                 gateway_type='local',
                 loop=None, 
                 root = None,
                 client_kwargs={},
@@ -358,6 +358,8 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         params.update(kwargs)
         params['wrap-with-directory'] = 'true' if wrap_with_directory else 'false'
 
+
+        assert os.path.exists(lpath), f'{lpath} does not exist'
         local_isdir = os.path.isdir(lpath)
         local_isfile = os.path.isfile(lpath)
 
@@ -450,11 +452,14 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _cat(
             self, path, recursive=False, on_error="raise", batch_size=None, **kwargs
         ):
+
+
             if await self._isdir(path=path):
                 recursive = True
             
             paths = await self._expand_path(path, recursive=recursive)
             paths = await self.filter_files(paths)
+            # print(paths, 'PATHS', path)
             coros = [self._cat_file(path, **kwargs) for path in paths]
             batch_size = batch_size or self.batch_size
             out = await _run_coros_in_chunks(
@@ -467,18 +472,16 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
             
             assert len(paths) == len(out)
             if (
-                len(out) > 1
+                len(out) >= 1
             ):
                 return {
                     k: v
                     for k, v in zip(paths, out)
                     if on_error != "omit" or not is_exception(v)
                 }
-            elif len(out) == 1:
-                return out[0]
-            else:
-                raise Exception(f'WTF, out is not suppose to be <1 , len: {len(outs)}')
 
+            else:
+                raise Exception(f'WTF, out is not suppose to be <1 , len: {len(out)}')
     async def _info(self, path, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
