@@ -7,6 +7,6 @@ __version__ = get_versions()['version']
 del get_versions
 
 # register_implementation(IPFSFileSystem.protocol, IPFSFileSystem)
-register_implementation(AsyncIPFSFileSystem.protocol, AsyncIPFSFileSystem)
+register_implementation(AsyncIPFSFileSystem.protocol, AsyncIPFSFileSystem, clobber=True)
 
 __all__ = ["__version__", "IPFSFileSystem", "AsyncIPFSFileSystem"]
