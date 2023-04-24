@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio
 from ipfsspec.async_ipfs import AsyncIPFSGateway, MultiGateway, AsyncIPFSFileSystem
 import aiohttp
 
@@ -7,7 +8,7 @@ REF_CONTENT = b'ipfsspec test data'
 TEST_FILENAMES = ["default", "multi", "raw", "raw_multi", "write"]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def session():
     async with aiohttp.ClientSession() as session:
         yield session
