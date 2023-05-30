@@ -2,6 +2,15 @@
 
 A readonly implementation of fsspec for IPFS.
 
+## Installation
+
+You can install `ipfsspec` directly from git with the following command:
+```bash
+pip install git+https://github.com/fsspec/ipfsspec
+```
+
+## Usage
+
 This project is currently very rudimentaty. It is not yet optimized for efficiency and is not yet feature complete. However it should be enough to list directory contents and to retrieve files from `ipfs://` resources via fsspec. A simple hello worlds would look like:
 
 ```python
