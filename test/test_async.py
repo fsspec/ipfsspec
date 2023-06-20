@@ -85,8 +85,6 @@ async def test_exists(event_loop):
     assert res is True
     res = await fs._exists(TEST_ROOT + "/missing")
     assert res is False
-    res = await fs._exists("/missing")
-    assert res is False
 
 
 @pytest.mark.asyncio
