@@ -31,8 +31,8 @@ class IPFSGateway:
         logger.debug("get %s via %s", path, self.url)
         try:
             res = self.session.get(self.url + "/ipfs/" + path)
-        except requests.ConnectionError as e:
-            logger.debug("Connection Error: %s", e)
+        except IOError as e:
+            logger.debug("IOError: %s", e)
             self._backoff()
             return None
         # this is from https://blog.petrzemek.net/2018/04/22/on-incomplete-http-reads-and-the-requests-library-in-python/
@@ -59,8 +59,8 @@ class IPFSGateway:
         logger.debug("head %s via %s", path, self.url, headers=headers or {})
         try:
             res = self.session.get(self.url + "/ipfs/" + path)
-        except requests.ConnectionError as e:
-            logger.debug("Connection Error: %s", e)
+        except IOError as e:
+            logger.debug("IOError: %s", e)
             self._backoff()
             return None
         if res.status_code == 429:  # too many requests
@@ -75,7 +75,7 @@ class IPFSGateway:
         logger.debug("post %s via %s", call, self.url)
         try:
             res = self.session.post(self.url + "/api/v0/" + call, params=kwargs)
-        except requests.ConnectionError:
+        except IOError:
             self._backoff()
             return None
         if res.status_code == 429:  # too many requests
@@ -107,7 +107,7 @@ class IPFSGateway:
                 self.state = "online"
             else:
                 self.state = "offline"
-        except requests.ConnectionError:
+        except IOError:
             self.state = "offline"
 
     def get_state(self):
