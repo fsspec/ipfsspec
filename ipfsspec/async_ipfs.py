@@ -30,7 +30,7 @@ class AsyncIPFSGatewayBase:
         info = {"name": path}
 
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
-        res = await self.cid_head(path, session, headers=headers)
+        res = await self.cid_head(path, session, headers=headers, allow_redirects=True)
 
         async with res:
             self._raise_not_found_for_status(res, path)
@@ -105,7 +105,7 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
     async def _cid_req(self, method, path, headers=None, **kwargs):
         headers = headers or {}
         if self.resolution == "path":
-            res = await method(self.url + "/ipfs/" + path, trace_request_ctx={'gateway': self.url}, headers=headers)
+            res = await method(self.url + "/ipfs/" + path, trace_request_ctx={'gateway': self.url}, headers=headers, **kwargs)
         elif self.resolution == "subdomain":
             raise NotImplementedError("subdomain resolution is not yet implemented")
         else:
