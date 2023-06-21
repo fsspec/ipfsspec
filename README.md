@@ -6,7 +6,7 @@ A readonly implementation of fsspec for IPFS.
 
 You can install `ipfsspec` directly from git with the following command:
 ```bash
-pip install git+https://github.com/fsspec/ipfsspec
+pip install ipfsspec
 ```
 
 ## Usage
