@@ -15,6 +15,14 @@ MAX_RETRIES = 2
 
 
 class IPFSGateway:
+    """
+    Abstrats the IPFS gateway REST API.
+
+    Documentation for the REST API can be found here: [Kubo_RPC_API]_.
+
+    References:
+        .. [Kubo_RPC_API] http://docs.ipfs.tech.ipns.localhost:8080/reference/kubo/rpc/
+    """
     def __init__(self, url):
         self.url = url
         self.state = "unknown"
@@ -166,7 +174,23 @@ class IPFSFileSystem(AbstractFileSystem):
         logger.debug("ls on %s", path)
         res = self._gw_apipost("ls", arg=path)
         links = res["Objects"][0]["Links"]
-        types = {1: "directory", 2: "file"}
+
+        # Documentation for the type codes doesn't seem to have a great location.
+        # Currently 2023-10-17, the ls API docs specify the ls return
+        # structure, but not what the type integers mean:
+        # http://docs.ipfs.tech.ipns.localhost:8080/reference/kubo/rpc/#api-v0-ls
+        # Some information about type codes can be found here:
+        # https://ipfs-search.readthedocs.io/en/latest/ipfs_datatypes.html
+        # https://github.com/ipfs/go-unixfs/blob/master/pb/unixfs.proto
+
+        types = {
+            0: "raw",
+            1: "directory",
+            2: "file",
+            3: "metadata",
+            4: "symlink",
+            5: "shard",
+        }
         if detail:
             return [{"name": path + "/" + link["Name"],
                      "size": link["Size"],
