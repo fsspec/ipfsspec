@@ -66,7 +66,14 @@ class AsyncIPFSGatewayBase:
         res = await self.api_get("ls", session, arg=path)
         self._raise_not_found_for_status(res, path)
         resdata = await res.json()
-        types = {1: "directory", 2: "file"}
+        types = {
+            0: "raw",
+            1: "directory",
+            2: "file",
+            3: "metadata",
+            4: "symlink",
+            5: "shard",
+        }
         return [{
                     "name": path + "/" + link["Name"],
                     "CID": link["Hash"],
