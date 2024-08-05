@@ -1,13 +1,11 @@
 import io
 import os
 import platform
-import time
 import weakref
 from functools import lru_cache
 from pathlib import Path
 import warnings
 
-import asyncio
 import aiohttp
 
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
@@ -139,110 +137,6 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
 
     def __str__(self):
         return f"GW({self.url})"
-
-
-class GatewayState:
-    def __init__(self):
-        self.reachable = True
-        self.next_request_time = 0
-        self.backoff_time = 0
-        self.start_backoff = 1e-5
-        self.max_backoff = 5
-
-    def schedule_next(self):
-        self.next_request_time = time.monotonic() + self.backoff_time
-
-    def backoff(self):
-        if self.backoff_time < self.start_backoff:
-            self.backoff_time = self.start_backoff
-        else:
-            self.backoff_time *= 2
-        self.reachable = True
-        self.schedule_next()
-
-    def speedup(self, not_below=0):
-        did_speed_up = False
-        if self.backoff_time > not_below:
-            self.backoff_time *= 0.9
-            did_speed_up = True
-        self.reachable = True
-        self.schedule_next()
-        return did_speed_up
-
-    def broken(self):
-        self.backoff_time = self.max_backoff
-        self.reachable = False
-        self.schedule_next()
-
-    def trying_to_reach(self):
-        self.next_request_time = time.monotonic() + 1
-
-
-class MultiGateway(AsyncIPFSGatewayBase):
-    def __init__(self, gws, max_backoff_rounds=50):
-        self.gws = [(GatewayState(), gw) for gw in gws]
-        self.max_backoff_rounds = max_backoff_rounds
-
-    @property
-    def _gws_in_priority_order(self):
-        now = time.monotonic()
-        return sorted(self.gws, key=lambda x: max(now, x[0].next_request_time))
-
-    async def _gw_op(self, op):
-        for _ in range(self.max_backoff_rounds):
-            for state, gw in self._gws_in_priority_order:
-                not_before = state.next_request_time
-                if not state.reachable:
-                    state.trying_to_reach()
-                else:
-                    state.schedule_next()
-                now = time.monotonic()
-                if not_before > now:
-                    await asyncio.sleep(not_before - now)
-                logger.debug("tring %s", gw)
-                try:
-                    res = await op(gw)
-                    if state.speedup(time.monotonic() - now):
-                        logger.debug("%s speedup", gw)
-                    return res
-                except FileNotFoundError:  # early exit if object doesn't exist
-                    raise
-                except (RequestsTooQuick, aiohttp.ClientResponseError, asyncio.TimeoutError) as e:
-                    state.backoff()
-                    logger.debug("%s backoff %s", gw, e)
-                    break
-                except IOError as e:
-                    exception = e
-                    state.broken()
-                    logger.debug("%s broken", gw)
-                    continue
-            else:
-                raise exception
-        raise RequestsTooQuick()
-
-    async def api_get(self, endpoint, session, **kwargs):
-        return await self._gw_op(lambda gw: gw.api_get(endpoint, session, **kwargs))
-
-    async def api_post(self, endpoint, session, **kwargs):
-        return await self._gw_op(lambda gw: gw.api_post(endpoint, session, **kwargs))
-
-    async def cid_head(self, path, session, headers=None, **kwargs):
-        return await self._gw_op(lambda gw: gw.cid_head(path, session, headers=headers, **kwargs))
-
-    async def cid_get(self, path, session, headers=None, **kwargs):
-        return await self._gw_op(lambda gw: gw.cid_get(path, session, headers=headers, **kwargs))
-
-    async def cat(self, path, session):
-        return await self._gw_op(lambda gw: gw.cat(path, session))
-
-    async def ls(self, path, session):
-        return await self._gw_op(lambda gw: gw.ls(path, session))
-
-    def state_report(self):
-        return "\n".join(f"{s.next_request_time}, {gw}" for s, gw in self.gws)
-
-    def __str__(self):
-        return "Multi-GW(" + ", ".join(str(gw) for _, gw in self.gws) + ")"
 
 
 async def get_client(**kwargs):
