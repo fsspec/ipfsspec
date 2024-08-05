@@ -1,14 +1,17 @@
 import io
+import os
+import platform
 import time
 import weakref
+from functools import lru_cache
+from pathlib import Path
+import warnings
 
 import asyncio
 import aiohttp
 
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 from fsspec.exceptions import FSTimeoutError
-
-from .utils import get_default_gateways
 
 import logging
 
@@ -248,19 +251,92 @@ async def get_client(**kwargs):
     return aiohttp.ClientSession(**kwargs)
 
 
-DEFAULT_GATEWAY = None
+def gateway_from_file(gateway_path):
+    if gateway_path.exists():
+        with open(gateway_path) as gw_file:
+            ipfs_gateway = gw_file.readline().strip()
+            logger.debug("using IPFS gateway from %s: %s", gateway_path, ipfs_gateway)
+            return AsyncIPFSGateway(ipfs_gateway)
+    return None
 
 
+@lru_cache
 def get_gateway():
-    global DEFAULT_GATEWAY
-    if DEFAULT_GATEWAY is None:
-        use_gateway(*get_default_gateways())
-    return DEFAULT_GATEWAY
+    """
+    Get IPFS gateway according to IPIP-280
 
+    see: https://github.com/ipfs/specs/pull/280
+    """
 
-def use_gateway(*urls):
-    global DEFAULT_GATEWAY
-    DEFAULT_GATEWAY = MultiGateway([AsyncIPFSGateway(url) for url in urls])
+    # IPFS_GATEWAY environment variable should override everything
+    ipfs_gateway = os.environ.get("IPFS_GATEWAY", "")
+    if ipfs_gateway:
+        logger.debug("using IPFS gateway from IPFS_GATEWAY environment variable: %s", ipfs_gateway)
+        return AsyncIPFSGateway(ipfs_gateway)
+
+    # internal configuration: accept IPFSSPEC_GATEWAYS for backwards compatibility
+    if ipfsspec_gateways := os.environ.get("IPFSSPEC_GATEWAYS", ""):
+        ipfs_gateway = ipfsspec_gateways.split()[0]
+        logger.debug("using IPFS gateway from IPFSSPEC_GATEWAYS environment variable: %s", ipfs_gateway)
+        warnings.warn("The IPFSSPEC_GATEWAYS environment variable is deprecated, please configure your IPFS Gateway according to IPIP-280, e.g. by using the IPFS_GATEWAY environment variable or using the ~/.ipfs/gateway file.", DeprecationWarning)
+        return AsyncIPFSGateway(ipfs_gateway)
+
+    # check various well-known files for possible gateway configurations
+    if ipfs_path := os.environ.get("IPFS_PATH", ""):
+        if ipfs_gateway := gateway_from_file(Path(ipfs_path) / "gateway"):
+            return ipfs_gateway
+
+    if home := os.environ.get("HOME", ""):
+        if ipfs_gateway := gateway_from_file(Path(home) / ".ipfs" / "gateway"):
+            return ipfs_gateway
+
+    if config_home := os.environ.get("XDG_CONFIG_HOME", ""):
+        if ipfs_gateway := gateway_from_file(Path(config_home) / "ipfs" / "gateway"):
+            return ipfs_gateway
+
+    if ipfs_gateway := gateway_from_file(Path("/etc") / "ipfs" / "gateway"):
+        return ipfs_gateway
+
+    system = platform.system()
+
+    if system == "Windows":
+        candidates = [
+            Path(os.environ.get("LOCALAPPDATA")) / "ipfs" / "gateway",
+            Path(os.environ.get("APPDATA")) / "ipfs" / "gateway",
+            Path(os.environ.get("PROGRAMDATA")) / "ipfs" / "gateway",
+        ]
+    elif system == "Darwin":
+        candidates = [
+            Path(os.environ.get("HOME")) / "Library" / "Application Support" / "ipfs" / "gateway",
+            Path("/Library") / "Application Support" / "ipfs" / "gateway",
+        ]
+    elif system == "Linux":
+        candidates = [
+            Path(os.environ.get("HOME")) / ".config" / "ipfs" / "gateway",
+            Path("/etc") / "ipfs" / "gateway",
+        ]
+    else:
+        candidates = []
+
+    for candidate in candidates:
+        if ipfs_gateway := gateway_from_file(candidate):
+            return ipfs_gateway
+
+    # if we reach this point, no gateway is configured
+    raise RuntimeError("IPFS Gateway could not be found!\n"
+                       "In order to access IPFS, you must configure an "
+                       "IPFS Gateway using a IPIP-280 configuration method. "
+                       "Possible options are: \n"
+                       "  * set the environment variable IPFS_GATEWAY\n"
+                       "  * write a gateway in the first line of the file ~/.ipfs/gateway\n"
+                       "\n"
+                       "It's always best to run your own IPFS gateway, e.g. by using "
+                       "IPFS Desktop (https://docs.ipfs.tech/install/ipfs-desktop/) or "
+                       "the command line version Kubo (https://docs.ipfs.tech/install/command-line/). "
+                       "If you can't run your own gateway, you may also try using the "
+                       "public IPFS gateway at https://ipfs.io or https://dweb.link . "
+                       "However, this is not recommended for productive use and you may experience "
+                       "severe performance issues.")
 
 
 class AsyncIPFSFileSystem(AsyncFileSystem):
