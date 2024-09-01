@@ -1,6 +1,6 @@
 import pytest
 import pytest_asyncio
-from ipfsspec.async_ipfs import AsyncIPFSGateway, MultiGateway, AsyncIPFSFileSystem
+from ipfsspec.async_ipfs import AsyncIPFSGateway, AsyncIPFSFileSystem
 import aiohttp
 
 TEST_ROOT = "QmW3CrGFuFyF3VH1wvrap4Jend5NRTgtESDjuQ7QhHD5dd"
@@ -37,23 +37,6 @@ async def test_get_cid_of_folder(gw_host, session):
 
     info = await gw.file_info(TEST_ROOT, session)
     assert info["CID"] == TEST_ROOT
-
-
-@pytest.mark.local_gw
-@pytest.mark.parametrize("gw_hosts", [
-    ["http://127.0.0.1:8080"],
-    ["http://127.0.0.1:9999", "http://127.0.0.1:8080"],
-    ["http://127.0.0.1:8080", "http://127.0.0.1:9999"],
-    ["https://ipfs.io", "http://127.0.0.1:8080"],
-    ["http://127.0.0.1:8080", "https://ipfs.io"],
-])
-@pytest.mark.asyncio
-async def test_multi_gw_cat(gw_hosts, session):
-    gws = [AsyncIPFSGateway(gw_host) for gw_host in gw_hosts]
-    gw = MultiGateway(gws)
-
-    res = await gw.cat(TEST_ROOT + "/default", session)
-    assert res == REF_CONTENT
 
 
 @pytest.mark.asyncio
