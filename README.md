@@ -20,6 +20,10 @@ with fsspec.open("ipfs://QmZ4tDuvesekSs4qM5ZBKpXiZGun7S2CYtEZRB3DYXkjGx", "r") a
     print(f.read())
 ```
 
-The current implementation uses a HTTP gateway to access the data. It tries to use a local one (which is expected to be found at `http://127.0.0.1:8080`) and falls back to `ipfs.io` if the local gateway is not available.
+The current implementation uses a HTTP gateway to access the data. It uses [IPIP-280](https://github.com/ipfs/specs/pull/280) to determine which gateway to use. If you have a current installation of an IPFS node (e.g. kubo, IPFS Desktop etc...), you should be fine. In case you want to use a different gateway, you can use any of the methods specified in IPIP-280, e.g.:
 
-You can modify the list of gateways using the space separated environment variable `IPFSSPEC_GATEWAYS`.
+* create the file `~/.ipfs/gateway` with the gateway address as first line
+* define the environment variable `IPFS_GATEWAY` to the gateway address
+* create the file `/etc/ipfs/gateway` with the gateway address as first line
+
+No matter which option you use, the gateway has to be specified as an HTTP(S) url, e.g.: `http://127.0.0.1:8080`.
