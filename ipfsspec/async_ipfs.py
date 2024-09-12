@@ -21,7 +21,7 @@ class RequestsTooQuick(OSError):
         self.retry_after = retry_after
 
 
-class AsyncGatewayBase:
+class AsyncIPFSGatewayBase:
     async def stat(self, path, session):
         res = await self.api_get("files/stat", session, arg=path)
         self._raise_not_found_for_status(res, path)
@@ -87,7 +87,7 @@ class AsyncGatewayBase:
         response.raise_for_status()
 
 
-class AsyncGateway(AsyncGatewayBase):
+class AsyncIPFSGateway(AsyncIPFSGatewayBase):
     resolution = "path"
 
     def __init__(self, url, protocol="ipfs"):
@@ -151,7 +151,7 @@ def gateway_from_file(gateway_path, protocol="ipfs"):
         with open(gateway_path) as gw_file:
             ipfs_gateway = gw_file.readline().strip()
             logger.debug("using IPFS gateway from %s: %s", gateway_path, ipfs_gateway)
-            return AsyncGateway(ipfs_gateway, protocol=protocol)
+            return AsyncIPFSGateway(ipfs_gateway, protocol=protocol)
     return None
 
 
