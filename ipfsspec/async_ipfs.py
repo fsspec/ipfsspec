@@ -90,8 +90,9 @@ class AsyncIPFSGatewayBase:
 class AsyncIPFSGateway(AsyncIPFSGatewayBase):
     resolution = "path"
 
-    def __init__(self, url):
+    def __init__(self, url, protocol="ipfs"):
         self.url = url
+        self.protocol = protocol
 
     async def api_get(self, endpoint, session, **kwargs):
         res = await session.get(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
@@ -106,7 +107,7 @@ class AsyncIPFSGateway(AsyncIPFSGatewayBase):
     async def _cid_req(self, method, path, headers=None, **kwargs):
         headers = headers or {}
         if self.resolution == "path":
-            res = await method(self.url + "/ipfs/" + path, trace_request_ctx={'gateway': self.url}, headers=headers, **kwargs)
+            res = await method("/".join((self.url, self.protocol,  path)), trace_request_ctx={'gateway': self.url}, headers=headers, **kwargs)
         elif self.resolution == "subdomain":
             raise NotImplementedError("subdomain resolution is not yet implemented")
         else:
@@ -145,17 +146,17 @@ async def get_client(**kwargs):
     return aiohttp.ClientSession(**kwargs)
 
 
-def gateway_from_file(gateway_path):
+def gateway_from_file(gateway_path, protocol="ipfs"):
     if gateway_path.exists():
         with open(gateway_path) as gw_file:
             ipfs_gateway = gw_file.readline().strip()
             logger.debug("using IPFS gateway from %s: %s", gateway_path, ipfs_gateway)
-            return AsyncIPFSGateway(ipfs_gateway)
+            return AsyncIPFSGateway(ipfs_gateway, protocol=protocol)
     return None
 
 
 @lru_cache
-def get_gateway():
+def get_gateway(protocol="ipfs"):
     """
     Get IPFS gateway according to IPIP-280
 
@@ -166,29 +167,29 @@ def get_gateway():
     ipfs_gateway = os.environ.get("IPFS_GATEWAY", "")
     if ipfs_gateway:
         logger.debug("using IPFS gateway from IPFS_GATEWAY environment variable: %s", ipfs_gateway)
-        return AsyncIPFSGateway(ipfs_gateway)
+        return AsyncGateway(ipfs_gateway, protocol)
 
     # internal configuration: accept IPFSSPEC_GATEWAYS for backwards compatibility
     if ipfsspec_gateways := os.environ.get("IPFSSPEC_GATEWAYS", ""):
         ipfs_gateway = ipfsspec_gateways.split()[0]
         logger.debug("using IPFS gateway from IPFSSPEC_GATEWAYS environment variable: %s", ipfs_gateway)
         warnings.warn("The IPFSSPEC_GATEWAYS environment variable is deprecated, please configure your IPFS Gateway according to IPIP-280, e.g. by using the IPFS_GATEWAY environment variable or using the ~/.ipfs/gateway file.", DeprecationWarning)
-        return AsyncIPFSGateway(ipfs_gateway)
+        return AsyncGateway(ipfs_gateway, protocol)
 
     # check various well-known files for possible gateway configurations
     if ipfs_path := os.environ.get("IPFS_PATH", ""):
-        if ipfs_gateway := gateway_from_file(Path(ipfs_path) / "gateway"):
+        if ipfs_gateway := gateway_from_file(Path(ipfs_path) / "gateway", protocol):
             return ipfs_gateway
 
     if home := os.environ.get("HOME", ""):
-        if ipfs_gateway := gateway_from_file(Path(home) / ".ipfs" / "gateway"):
+        if ipfs_gateway := gateway_from_file(Path(home) / ".ipfs" / "gateway", protocol):
             return ipfs_gateway
 
     if config_home := os.environ.get("XDG_CONFIG_HOME", ""):
-        if ipfs_gateway := gateway_from_file(Path(config_home) / "ipfs" / "gateway"):
+        if ipfs_gateway := gateway_from_file(Path(config_home) / "ipfs" / "gateway", protocol):
             return ipfs_gateway
 
-    if ipfs_gateway := gateway_from_file(Path("/etc") / "ipfs" / "gateway"):
+    if ipfs_gateway := gateway_from_file(Path("/etc") / "ipfs" / "gateway", protocol):
         return ipfs_gateway
 
     system = platform.system()
@@ -213,7 +214,7 @@ def get_gateway():
         candidates = []
 
     for candidate in candidates:
-        if ipfs_gateway := gateway_from_file(candidate):
+        if ipfs_gateway := gateway_from_file(candidate, protocol):
             return ipfs_gateway
 
     # if we reach this point, no gateway is configured
@@ -249,7 +250,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
     @property
     def gateway(self):
-        return get_gateway()
+        return get_gateway(self.protocol)
 
     @staticmethod
     def close_session(loop, session):
@@ -300,3 +301,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     def ukey(self, path):
         """returns the CID, which is by definition an unchanging identitifer"""
         return self.info(path)["CID"]
+
+
+class AsyncIPNSFileSystem(AsyncIPFSFileSystem):
+    protocol = "ipns"
