@@ -56,11 +56,6 @@ class AsyncIPFSGateway:
     async def cid_get(self, path, session, headers=None, **kwargs):
         return await self._cid_req(session.get, path, headers=headers, **kwargs)
 
-    async def version(self, session):
-        res = await self.api_get("version", session)
-        res.raise_for_status()
-        return await res.json()
-
     @staticmethod
     def _raise_requests_too_quick(response):
         if response.status == 429:
