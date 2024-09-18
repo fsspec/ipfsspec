@@ -28,16 +28,6 @@ class AsyncIPFSGateway:
         self.url = url
         self.protocol = protocol
 
-    async def api_get(self, endpoint, session, **kwargs):
-        res = await session.get(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
-        self._raise_requests_too_quick(res)
-        return res
-
-    async def api_post(self, endpoint, session, **kwargs):
-        res = await session.post(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
-        self._raise_requests_too_quick(res)
-        return res
-
     async def _cid_req(self, method, path, headers=None, **kwargs):
         headers = headers or {}
         if self.resolution == "path":
