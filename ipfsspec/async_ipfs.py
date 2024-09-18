@@ -167,14 +167,14 @@ def get_gateway(protocol="ipfs"):
     ipfs_gateway = os.environ.get("IPFS_GATEWAY", "")
     if ipfs_gateway:
         logger.debug("using IPFS gateway from IPFS_GATEWAY environment variable: %s", ipfs_gateway)
-        return AsyncGateway(ipfs_gateway, protocol)
+        return AsyncIPFSGateway(ipfs_gateway, protocol)
 
     # internal configuration: accept IPFSSPEC_GATEWAYS for backwards compatibility
     if ipfsspec_gateways := os.environ.get("IPFSSPEC_GATEWAYS", ""):
         ipfs_gateway = ipfsspec_gateways.split()[0]
         logger.debug("using IPFS gateway from IPFSSPEC_GATEWAYS environment variable: %s", ipfs_gateway)
         warnings.warn("The IPFSSPEC_GATEWAYS environment variable is deprecated, please configure your IPFS Gateway according to IPIP-280, e.g. by using the IPFS_GATEWAY environment variable or using the ~/.ipfs/gateway file.", DeprecationWarning)
-        return AsyncGateway(ipfs_gateway, protocol)
+        return AsyncIPFSGateway(ipfs_gateway, protocol)
 
     # check various well-known files for possible gateway configurations
     if ipfs_path := os.environ.get("IPFS_PATH", ""):
