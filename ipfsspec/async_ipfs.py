@@ -21,7 +21,58 @@ class RequestsTooQuick(OSError):
         self.retry_after = retry_after
 
 
-class AsyncIPFSGatewayBase:
+class AsyncIPFSGateway:
+    resolution = "path"
+
+    def __init__(self, url, protocol="ipfs"):
+        self.url = url
+        self.protocol = protocol
+
+    async def api_get(self, endpoint, session, **kwargs):
+        res = await session.get(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
+        self._raise_requests_too_quick(res)
+        return res
+
+    async def api_post(self, endpoint, session, **kwargs):
+        res = await session.post(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
+        self._raise_requests_too_quick(res)
+        return res
+
+    async def _cid_req(self, method, path, headers=None, **kwargs):
+        headers = headers or {}
+        if self.resolution == "path":
+            res = await method("/".join((self.url, self.protocol,  path)), trace_request_ctx={'gateway': self.url}, headers=headers, **kwargs)
+        elif self.resolution == "subdomain":
+            raise NotImplementedError("subdomain resolution is not yet implemented")
+        else:
+            raise NotImplementedError(f"'{self.resolution}' resolution is not known")
+        # TODO: maybe handle 301 here
+        self._raise_requests_too_quick(res)
+        return res
+
+    async def cid_head(self, path, session, headers=None, **kwargs):
+        return await self._cid_req(session.head, path, headers=headers, **kwargs)
+
+    async def cid_get(self, path, session, headers=None, **kwargs):
+        return await self._cid_req(session.get, path, headers=headers, **kwargs)
+
+    async def version(self, session):
+        res = await self.api_get("version", session)
+        res.raise_for_status()
+        return await res.json()
+
+    @staticmethod
+    def _raise_requests_too_quick(response):
+        if response.status == 429:
+            if "retry-after" in response.headers:
+                retry_after = int(response.headers["retry-after"])
+            else:
+                retry_after = None
+            raise RequestsTooQuick(retry_after)
+
+    def __str__(self):
+        return f"GW({self.url})"
+
     async def stat(self, path, session):
         res = await self.api_get("files/stat", session, arg=path)
         self._raise_not_found_for_status(res, path)
@@ -87,57 +138,6 @@ class AsyncIPFSGatewayBase:
         response.raise_for_status()
 
 
-class AsyncIPFSGateway(AsyncIPFSGatewayBase):
-    resolution = "path"
-
-    def __init__(self, url, protocol="ipfs"):
-        self.url = url
-        self.protocol = protocol
-
-    async def api_get(self, endpoint, session, **kwargs):
-        res = await session.get(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
-        self._raise_requests_too_quick(res)
-        return res
-
-    async def api_post(self, endpoint, session, **kwargs):
-        res = await session.post(self.url + "/api/v0/" + endpoint, params=kwargs, trace_request_ctx={'gateway': self.url})
-        self._raise_requests_too_quick(res)
-        return res
-
-    async def _cid_req(self, method, path, headers=None, **kwargs):
-        headers = headers or {}
-        if self.resolution == "path":
-            res = await method("/".join((self.url, self.protocol,  path)), trace_request_ctx={'gateway': self.url}, headers=headers, **kwargs)
-        elif self.resolution == "subdomain":
-            raise NotImplementedError("subdomain resolution is not yet implemented")
-        else:
-            raise NotImplementedError(f"'{self.resolution}' resolution is not known")
-        # TODO: maybe handle 301 here
-        self._raise_requests_too_quick(res)
-        return res
-
-    async def cid_head(self, path, session, headers=None, **kwargs):
-        return await self._cid_req(session.head, path, headers=headers, **kwargs)
-
-    async def cid_get(self, path, session, headers=None, **kwargs):
-        return await self._cid_req(session.get, path, headers=headers, **kwargs)
-
-    async def version(self, session):
-        res = await self.api_get("version", session)
-        res.raise_for_status()
-        return await res.json()
-
-    @staticmethod
-    def _raise_requests_too_quick(response):
-        if response.status == 429:
-            if "retry-after" in response.headers:
-                retry_after = int(response.headers["retry-after"])
-            else:
-                retry_after = None
-            raise RequestsTooQuick(retry_after)
-
-    def __str__(self):
-        return f"GW({self.url})"
 
 
 async def get_client(**kwargs):
