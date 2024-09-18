@@ -40,10 +40,10 @@ class AsyncIPFSGateway:
         self._raise_requests_too_quick(res)
         return res
 
-    async def cid_head(self, path, session, headers=None, **kwargs):
+    async def head(self, path, session, headers=None, **kwargs):
         return await self._cid_req(session.head, path, headers=headers, **kwargs)
 
-    async def cid_get(self, path, session, headers=None, **kwargs):
+    async def get(self, path, session, headers=None, **kwargs):
         return await self._cid_req(session.get, path, headers=headers, **kwargs)
 
     @staticmethod
@@ -67,7 +67,7 @@ class AsyncIPFSGateway:
         info = {"name": path}
 
         headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
-        res = await self.cid_head(path, session, headers=headers, allow_redirects=True)
+        res = await self.head(path, session, headers=headers, allow_redirects=True)
 
         async with res:
             self._raise_not_found_for_status(res, path)
@@ -92,7 +92,7 @@ class AsyncIPFSGateway:
         return info
 
     async def cat(self, path, session):
-        res = await self.cid_get(path, session)
+        res = await self.get(path, session)
         async with res:
             self._raise_not_found_for_status(res, path)
             if res.status != 200:
