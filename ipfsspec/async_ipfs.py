@@ -81,7 +81,7 @@ class AsyncIPFSGateway:
             node = unixfsv1.PBNode.loads(resdata)
             data = unixfsv1.Data.loads(node.Data)
             if data.Type == unixfsv1.DataType.Raw:
-                raise ValueError(f"The path '{path}' is only a subsection of a file")
+                raise FileNotFoundError(path)  # this is not a file, it's only a part of it
             elif data.Type == unixfsv1.DataType.Directory:
                 return {
                     "name": path,
@@ -109,14 +109,12 @@ class AsyncIPFSGateway:
             elif data.Type == unixfsv1.DataType.HAMTShard:
                 raise NotImplementedError(f"The path '{path}' contains a HAMTSharded directory, this is currently not implemented")
         else:
-            raise ValueError(f"The path '{path}' is neiter an IPFS UNIXFSv1 object")
+            raise FileNotFoundError(path)  # it exists, but is not a UNIXFSv1 object, so it's not a file
 
     async def cat(self, path, session):
         res = await self.get(path, session)
         async with res:
             self._raise_not_found_for_status(res, path)
-            if res.status != 200:
-                raise FileNotFoundError(path)
             return await res.read()
 
     async def ls(self, path, session, detail=False):
@@ -129,7 +127,7 @@ class AsyncIPFSGateway:
         data = unixfsv1.Data.loads(node.Data)
         if data.Type != unixfsv1.DataType.Directory:
             # TODO: we might need support for HAMTShard here (for large directories)
-            raise ValueError(f"The path '{path}' is not a directory")
+            raise NotADirectoryError(path)
 
         if detail:
             return await asyncio.gather(*(
@@ -142,9 +140,9 @@ class AsyncIPFSGateway:
         """
         Raises FileNotFoundError for 404s, otherwise uses raise_for_status.
         """
-        if response.status == 404:
+        if response.status == 404:  # returned for known missing files
             raise FileNotFoundError(url)
-        elif response.status == 400:
+        elif response.status == 400:  # return for invalid requests, so it's also certainly not there
             raise FileNotFoundError(url)
         response.raise_for_status()
 
@@ -301,7 +299,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
 
     def open(self, path, mode="rb", block_size=None, cache_options=None, **kwargs):
         if mode != "rb":
-            raise NotImplementedError
+            raise NotImplementedError("opening modes other than read binary are not implemented")
         data = self.cat_file(path)  # load whole chunk into memory
         return io.BytesIO(data)
 
