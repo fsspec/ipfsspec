@@ -8,6 +8,7 @@ import warnings
 
 import asyncio
 import aiohttp
+import aiohttp_retry
 
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 from fsspec.exceptions import FSTimeoutError
@@ -147,12 +148,12 @@ class AsyncIPFSGateway:
         response.raise_for_status()
 
 
-
-
 async def get_client(**kwargs):
-    timeout = aiohttp.ClientTimeout(sock_connect=1, sock_read=5)
-    kwargs = {"timeout": timeout, **kwargs}
-    return aiohttp.ClientSession(**kwargs)
+    retry_options = aiohttp_retry.ExponentialRetry(
+            attempts=5,
+            exceptions={OSError, aiohttp.ServerDisconnectedError, asyncio.TimeoutError})
+    retry_client = aiohttp_retry.RetryClient(raise_for_status=False, retry_options=retry_options)
+    return retry_client
 
 
 def gateway_from_file(gateway_path, protocol="ipfs"):
