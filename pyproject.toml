@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipfsspec"
+authors = [
+    {name = "Tobias Kölling", email = "tobias.koelling@mpimet.mpg.de"},
+]
+description = "readonly implementation of fsspec for IPFS"
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["fsspec", "IPFS", "filesystem"]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dynamic = ["version"]
+
+dependencies = [
+    "fsspec>=0.9.0",
+    "requests",
+    "aiohttp",
+    "multiformats",
+    "dag-cbor >= 0.2.2",
+    "pure-protobuf >= 2.1.0, <3",
+]
+
+[project.entry-points."fsspec.specs"]
+ipfs = "ipfsspec.AsyncIPFSFileSystem"
+ipns = "ipfsspec.AsyncIPNSFileSystem"
+
+[tool.setuptools_scm]
