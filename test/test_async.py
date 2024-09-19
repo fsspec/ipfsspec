@@ -27,7 +27,6 @@ async def fs(get_client):
     return AsyncIPFSFileSystem(asynchronous=True, loop=asyncio.get_running_loop(), get_client=get_client)
 
 
-@pytest.mark.local_gw
 @pytest.mark.parametrize("gw_host", ["http://127.0.0.1:8080"])
 @pytest.mark.parametrize("filename", TEST_FILENAMES)
 @pytest.mark.asyncio
@@ -42,7 +41,6 @@ async def test_different_file_representations(filename, gw_host, session):
     assert content == REF_CONTENT
 
 
-@pytest.mark.local_gw
 @pytest.mark.parametrize("gw_host", ["http://127.0.0.1:8080"])
 @pytest.mark.asyncio
 async def test_get_cid_of_folder(gw_host, session):
