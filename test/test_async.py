@@ -61,6 +61,13 @@ async def test_ls(fs):
     assert all([r["size"] == len(REF_CONTENT) for r in res])
 
 
+@pytest.mark.parametrize("detail", [False, True])
+@pytest.mark.asyncio
+async def test_ls_missing(fs, detail):
+    with pytest.raises(FileNotFoundError):
+        await fs._ls(TEST_ROOT + "/missing", detail=detail)
+
+
 @pytest.mark.asyncio
 async def test_glob(fs):
     res = await fs._glob(TEST_ROOT + "/w*")
