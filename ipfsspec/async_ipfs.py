@@ -13,7 +13,6 @@ from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 from fsspec.exceptions import FSTimeoutError
 
 from multiformats import CID, multicodec
-from .car import read_car
 from . import unixfsv1
 
 import logging
@@ -121,24 +120,23 @@ class AsyncIPFSGateway:
             return await res.read()
 
     async def ls(self, path, session, detail=False):
-        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.car"}, params={"format": "car", "dag-scope": "entity"})
+        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.raw"}, params={"format": "raw"})
         self._raise_not_found_for_status(res, path)
         resdata = await res.read()
-        root = CID.decode(res.headers["X-Ipfs-Roots"].split(",")[-1])
-        assert root.codec == DagPbCodec, "this is not a directory"
-        _, blocks = read_car(resdata)  # roots should be ignored by https://specs.ipfs.tech/http-gateways/trustless-gateway/
-        blocks = {cid: data for cid, data, _ in blocks}
-        root_block = unixfsv1.PBNode.loads(blocks[root])
-        root_data = unixfsv1.Data.loads(root_block.Data)
-        if root_data.Type != unixfsv1.DataType.Directory:
+        cid = CID.decode(res.headers["X-Ipfs-Roots"].split(",")[-1])
+        assert cid.codec == DagPbCodec, "this is not a directory"
+        node = unixfsv1.PBNode.loads(resdata)
+        data = unixfsv1.Data.loads(node.Data)
+        if data.Type != unixfsv1.DataType.Directory:
+            # TODO: we might need support for HAMTShard here (for large directories)
             raise ValueError(f"The path '{path}' is not a directory")
 
         if detail:
             return await asyncio.gather(*(
                 self.info(path + "/" + link.Name, session)
-                for link in root_block.Links))
+                for link in node.Links))
         else:
-            return [path + "/" + link.Name for link in root_block.Links]
+            return [path + "/" + link.Name for link in node.Links]
 
     def _raise_not_found_for_status(self, response, url):
         """
