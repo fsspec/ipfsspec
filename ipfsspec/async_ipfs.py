@@ -6,15 +6,22 @@ from functools import lru_cache
 from pathlib import Path
 import warnings
 
+import asyncio
 import aiohttp
 
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 from fsspec.exceptions import FSTimeoutError
 
+from multiformats import CID, multicodec
+from .car import read_car
+from . import unixfsv1
+
 import logging
 
 logger = logging.getLogger("ipfsspec")
 
+DagPbCodec = multicodec.get("dag-pb")
+RawCodec = multicodec.get("raw")
 
 class RequestsTooQuick(OSError):
     def __init__(self, retry_after=None):
@@ -58,38 +65,52 @@ class AsyncIPFSGateway:
     def __str__(self):
         return f"GW({self.url})"
 
-    async def stat(self, path, session):
-        res = await self.api_get("files/stat", session, arg=path)
+    async def info(self, path, session):
+        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.raw"}, params={"format": "raw"})
         self._raise_not_found_for_status(res, path)
-        return await res.json()
+        cid = CID.decode(res.headers["X-Ipfs-Roots"].split(",")[-1])
+        resdata = await res.read()
 
-    async def file_info(self, path, session):
-        info = {"name": path}
-
-        headers = {"Accept-Encoding": "identity"}  # this ensures correct file size
-        res = await self.head(path, session, headers=headers, allow_redirects=True)
-
-        async with res:
-            self._raise_not_found_for_status(res, path)
-            if res.status != 200:
-                # TODO: maybe handle 301 here
-                raise FileNotFoundError(path)
-            if "Content-Length" in res.headers:
-                info["size"] = int(res.headers["Content-Length"])
-            elif "Content-Range" in res.headers:
-                info["size"] = int(res.headers["Content-Range"].split("/")[1])
-
-            if "ETag" in res.headers:
-                etag = res.headers["ETag"].strip("\"")
-                info["ETag"] = etag
-                if etag.startswith("DirIndex"):
-                    info["type"] = "directory"
-                    info["CID"] = etag.split("-")[-1]
-                else:
-                    info["type"] = "file"
-                    info["CID"] = etag
-
-        return info
+        if cid.codec == RawCodec:
+            return {
+                "name": path,
+                "CID": str(cid),
+                "type": "file",
+                "size": len(resdata),
+            }
+        elif cid.codec == DagPbCodec:
+            node = unixfsv1.PBNode.loads(resdata)
+            data = unixfsv1.Data.loads(node.Data)
+            if data.Type == unixfsv1.DataType.Raw:
+                raise ValueError(f"The path '{path}' is only a subsection of a file")
+            elif data.Type == unixfsv1.DataType.Directory:
+                return {
+                    "name": path,
+                    "CID": str(cid),
+                    "type": "directory",
+                    "islink": False,
+                }
+            elif data.Type == unixfsv1.DataType.File:
+                return {
+                    "name": path,
+                    "CID": str(cid),
+                    "type": "file",
+                    "size": data.filesize,
+                    "islink": False,
+                }
+            elif data.Type == unixfsv1.DataType.Metadata:
+                raise NotImplementedError(f"The path '{path}' contains a Metadata node, this is currently not implemented")
+            elif data.Type == unixfsv1.DataType.Symlink:
+                return {
+                    "name": path,
+                    "CID": str(cid),
+                    "type": "other",  # TODO: maybe we should have directory or file as returning type, but that probably would require resolving at least another level of blocks
+                    "islink": True,
+                }
+            elif data.Type == unixfsv1.DataType.HAMTShard:
+                raise NotImplementedError(f"The path '{path}' contains a HAMTSharded directory, this is currently not implemented")
+        else:
+            raise ValueError(f"The path '{path}' is neiter an IPFS UNIXFSv1 object")
 
     async def cat(self, path, session):
         res = await self.get(path, session)
@@ -99,18 +120,25 @@ class AsyncIPFSGateway:
                 raise FileNotFoundError(path)
             return await res.read()
 
-    async def ls(self, path, session):
-        res = await self.api_get("ls", session, arg=path)
+    async def ls(self, path, session, detail=False):
+        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.car"}, params={"format": "car", "dag-scope": "entity"})
         self._raise_not_found_for_status(res, path)
-        resdata = await res.json()
-        types = {1: "directory", 2: "file"}
-        return [{
-                    "name": path + "/" + link["Name"],
-                    "CID": link["Hash"],
-                    "type": types[link["Type"]],
-                    "size": link["Size"],
-                }
-                for link in resdata["Objects"][0]["Links"]]
+        resdata = await res.read()
+        root = CID.decode(res.headers["X-Ipfs-Roots"].split(",")[-1])
+        assert root.codec == DagPbCodec, "this is not a directory"
+        _, blocks = read_car(resdata)  # roots should be ignored by https://specs.ipfs.tech/http-gateways/trustless-gateway/
+        blocks = {cid: data for cid, data, _ in blocks}
+        root_block = unixfsv1.PBNode.loads(blocks[root])
+        root_data = unixfsv1.Data.loads(root_block.Data)
+        if root_data.Type != unixfsv1.DataType.Directory:
+            raise ValueError(f"The path '{path}' is not a directory")
+
+        if detail:
+            return await asyncio.gather(*(
+                self.info(path + "/" + link.Name, session)
+                for link in root_block.Links))
+        else:
+            return [path + "/" + link.Name for link in root_block.Links]
 
     def _raise_not_found_for_status(self, response, url):
         """
@@ -259,11 +287,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _ls(self, path, detail=True, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
-        res = await self.gateway.ls(path, session)
-        if detail:
-            return res
-        else:
-            return [r["name"] for r in res]
+        return await self.gateway.ls(path, session, detail=detail)
 
     ls = sync_wrapper(_ls)
 
@@ -275,7 +299,7 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     async def _info(self, path, **kwargs):
         path = self._strip_protocol(path)
         session = await self.set_session()
-        return await self.gateway.file_info(path, session)
+        return await self.gateway.info(path, session)
 
     def open(self, path, mode="rb", block_size=None, cache_options=None, **kwargs):
         if mode != "rb":

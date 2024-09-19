@@ -26,6 +26,9 @@ setuptools.setup(
         "fsspec>=0.9.0",
         "requests",
         "aiohttp",
+        "multiformats",
+        "dag-cbor >= 0.2.2",
+        "pure-protobuf >= 2.1.0, <3",
     ],
     entry_points={
         'fsspec.specs': [
