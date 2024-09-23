@@ -81,6 +81,12 @@ async def test_cat_file(fs):
 
 
 @pytest.mark.asyncio
+async def test_get_file(fs, tmp_path):
+    await fs._get_file(TEST_ROOT + "/default", tmp_path / "default")
+    assert open(tmp_path / "default", "rb").read() == REF_CONTENT
+
+
+@pytest.mark.asyncio
 async def test_exists(fs):
     res = await fs._exists(TEST_ROOT + "/default")
     assert res is True

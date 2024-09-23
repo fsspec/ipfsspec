@@ -12,6 +12,8 @@ import aiohttp_retry
 
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 from fsspec.exceptions import FSTimeoutError
+from fsspec.callbacks import DEFAULT_CALLBACK
+from fsspec.utils import isfilelike
 
 from multiformats import CID, multicodec
 from . import unixfsv1
@@ -292,6 +294,26 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         path = self._strip_protocol(path)
         session = await self.set_session()
         return (await self.gateway.cat(path, session))[start:end]
+
+    async def _get_file(
+        self, rpath, lpath, chunk_size=5 * 2**20, callback=DEFAULT_CALLBACK, **kwargs
+    ):
+        # TODO: implement chunked retrieval
+        logger.debug(rpath)
+
+        if isfilelike(lpath):
+            outfile = lpath
+        else:
+            outfile = open(lpath, "wb")  # noqa: ASYNC101, ASYNC230
+
+        try:
+            content = await self._cat_file(rpath)
+            outfile.write(content)
+            callback.set_size(len(content))
+            callback.relative_update(len(content))
+        finally:
+            if not isfilelike(lpath):
+                outfile.close()
 
     async def _info(self, path, **kwargs):
         path = self._strip_protocol(path)
