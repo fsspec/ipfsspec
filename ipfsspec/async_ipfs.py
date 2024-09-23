@@ -4,6 +4,7 @@ import platform
 import weakref
 from functools import lru_cache
 from pathlib import Path
+from contextlib import asynccontextmanager
 import warnings
 
 import asyncio
@@ -12,6 +13,8 @@ import aiohttp_retry
 
 from fsspec.asyn import AsyncFileSystem, sync, sync_wrapper
 from fsspec.exceptions import FSTimeoutError
+from fsspec.callbacks import DEFAULT_CALLBACK
+from fsspec.utils import isfilelike
 
 from multiformats import CID, multicodec
 from . import unixfsv1
@@ -117,6 +120,17 @@ class AsyncIPFSGateway:
         async with res:
             self._raise_not_found_for_status(res, path)
             return await res.read()
+
+    @asynccontextmanager
+    async def iter_chunked(self, path, session, chunk_size):
+        res = await self.get(path, session)
+        async with res:
+            self._raise_not_found_for_status(res, path)
+            try:
+                size = int(res.headers["content-length"])
+            except (ValueError, KeyError):
+                size = None
+            yield size, res.content.iter_chunked(chunk_size)
 
     async def ls(self, path, session, detail=False):
         res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.raw"}, params={"format": "raw"})
@@ -292,6 +306,28 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
         path = self._strip_protocol(path)
         session = await self.set_session()
         return (await self.gateway.cat(path, session))[start:end]
+
+    async def _get_file(
+        self, rpath, lpath, chunk_size=5 * 2**20, callback=DEFAULT_CALLBACK, **kwargs
+    ):
+        logger.debug(rpath)
+        rpath = self._strip_protocol(rpath)
+        session = await self.set_session()
+
+        if isfilelike(lpath):
+            outfile = lpath
+        else:
+            outfile = open(lpath, "wb")  # noqa: ASYNC101, ASYNC230
+
+        try:
+            async with self.gateway.iter_chunked(rpath, session, chunk_size) as (size, chunks):
+                callback.set_size(size)
+                async for chunk in chunks:
+                    outfile.write(chunk)
+                    callback.relative_update(len(chunk))
+        finally:
+            if not isfilelike(lpath):
+                outfile.close()
 
     async def _info(self, path, **kwargs):
         path = self._strip_protocol(path)
