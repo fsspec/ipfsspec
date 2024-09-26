@@ -220,6 +220,7 @@ def get_gateway(protocol="ipfs"):
 
     if system == "Windows":
         candidates = [
+            Path.home() / ".ipfs" / "gateway",  # on windows, the HOME environment variable may not exist
             Path(os.environ.get("LOCALAPPDATA")) / "ipfs" / "gateway",
             Path(os.environ.get("APPDATA")) / "ipfs" / "gateway",
             Path(os.environ.get("PROGRAMDATA")) / "ipfs" / "gateway",
