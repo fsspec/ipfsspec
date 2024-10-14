@@ -180,12 +180,16 @@ def gateway_from_file(gateway_path, protocol="ipfs"):
 
 
 @lru_cache
-def get_gateway(protocol="ipfs"):
+def get_gateway(protocol="ipfs", gateway_addr=None):
     """
     Get IPFS gateway according to IPIP-280
 
     see: https://github.com/ipfs/specs/pull/280
     """
+
+    if gateway_addr:
+        logger.debug("using IPFS gateway as specified via function argument: %s", gateway_addr)
+        return AsyncIPFSGateway(gateway_addr, protocol)
 
     # IPFS_GATEWAY environment variable should override everything
     ipfs_gateway = os.environ.get("IPFS_GATEWAY", "")
@@ -263,19 +267,20 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     sep = "/"
     protocol = "ipfs"
 
-    def __init__(self, asynchronous=False, loop=None, client_kwargs=None, **storage_options):
+    def __init__(self, asynchronous=False, loop=None, client_kwargs=None, gateway_addr=None, **storage_options):
         super().__init__(self, asynchronous=asynchronous, loop=loop, **storage_options)
         self._session = None
 
         self.client_kwargs = client_kwargs or {}
         self.get_client = get_client
+        self.gateway_addr = gateway_addr
 
         if not asynchronous:
             sync(self.loop, self.set_session)
 
     @property
     def gateway(self):
-        return get_gateway(self.protocol)
+        return get_gateway(self.protocol, gateway_addr=self.gateway_addr)
 
     @staticmethod
     def close_session(loop, session):

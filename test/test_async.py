@@ -22,9 +22,10 @@ async def get_client(session):
 
 
 @pytest_asyncio.fixture
-async def fs(get_client):
+async def fs(request, get_client):
     AsyncIPFSFileSystem.clear_instance_cache()  # avoid reusing old event loop
-    return AsyncIPFSFileSystem(asynchronous=True, loop=asyncio.get_running_loop(), get_client=get_client)
+    gateway_addr = getattr(request, "param", None)
+    return AsyncIPFSFileSystem(asynchronous=True, loop=asyncio.get_running_loop(), get_client=get_client, gateway_addr=gateway_addr)
 
 
 @pytest.mark.parametrize("gw_host", ["http://127.0.0.1:8080"])
