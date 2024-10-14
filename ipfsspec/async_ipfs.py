@@ -18,6 +18,7 @@ from fsspec.utils import isfilelike
 
 from multiformats import CID, multicodec
 from . import unixfsv1
+from .car import read_car
 
 import logging
 
@@ -69,20 +70,30 @@ class AsyncIPFSGateway:
         return f"GW({self.url})"
 
     async def info(self, path, session):
-        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.raw"}, params={"format": "raw"})
+        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.car"}, params={"format": "car", "dag-scope": "block"})
         self._raise_not_found_for_status(res, path)
-        cid = CID.decode(res.headers["X-Ipfs-Roots"].split(",")[-1])
+
+        roots = res.headers["X-Ipfs-Roots"].split(",")
+        if len(roots) != len(path.split("/")):
+            raise FileNotFoundError(path)
+
+        cid = CID.decode(roots[-1])
         resdata = await res.read()
+
+        _, blocks = read_car(resdata)  # roots should be ignored by https://specs.ipfs.tech/http-gateways/trustless-gateway/
+        blocks = {cid: data for cid, data, _ in blocks}
+        block = blocks[cid]
 
         if cid.codec == RawCodec:
             return {
                 "name": path,
                 "CID": str(cid),
                 "type": "file",
-                "size": len(resdata),
+                "size": len(block),
             }
         elif cid.codec == DagPbCodec:
-            node = unixfsv1.PBNode.loads(resdata)
+
+            node = unixfsv1.PBNode.loads(block)
             data = unixfsv1.Data.loads(node.Data)
             if data.Type == unixfsv1.DataType.Raw:
                 raise FileNotFoundError(path)  # this is not a file, it's only a part of it
@@ -133,12 +144,20 @@ class AsyncIPFSGateway:
             yield size, res.content.iter_chunked(chunk_size)
 
     async def ls(self, path, session, detail=False):
-        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.raw"}, params={"format": "raw"})
+        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.car"}, params={"format": "car", "dag-scope": "block"})
         self._raise_not_found_for_status(res, path)
-        resdata = await res.read()
-        cid = CID.decode(res.headers["X-Ipfs-Roots"].split(",")[-1])
+        roots = res.headers["X-Ipfs-Roots"].split(",")
+        if len(roots) != len(path.split("/")):
+            raise FileNotFoundError(path)
+
+        cid = CID.decode(roots[-1])
         assert cid.codec == DagPbCodec, "this is not a directory"
-        node = unixfsv1.PBNode.loads(resdata)
+
+        resdata = await res.read()
+
+        _, blocks = read_car(resdata)  # roots should be ignored by https://specs.ipfs.tech/http-gateways/trustless-gateway/
+        blocks = {cid: data for cid, data, _ in blocks}
+        node = unixfsv1.PBNode.loads(blocks[cid])
         data = unixfsv1.Data.loads(node.Data)
         if data.Type != unixfsv1.DataType.Directory:
             # TODO: we might need support for HAMTShard here (for large directories)

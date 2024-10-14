@@ -101,3 +101,20 @@ async def test_isfile(fs):
     assert res is True
     res = await fs._isfile(TEST_ROOT)
     assert res is False
+
+@pytest.mark.parametrize("detail", [False, True])
+@pytest.mark.parametrize("fs", ["http://127.0.0.1:8080", "https://ipfs.io"], indirect=True)
+@pytest.mark.asyncio
+async def test_ls_multi_gw(fs, detail):
+    """
+    Test if ls works on different gateway implementations.
+
+    See also: https://github.com/fsspec/ipfsspec/issues/39
+    """
+    res = await fs._ls("bafybeicn7i3soqdgr7dwnrwytgq4zxy7a5jpkizrvhm5mv6bgjd32wm3q4", detail=detail)
+    expected = "bafybeicn7i3soqdgr7dwnrwytgq4zxy7a5jpkizrvhm5mv6bgjd32wm3q4/welcome-to-IPFS.jpg"
+    if detail:
+        assert len(res) == 1
+        assert res[0]["name"] == expected
+    else:
+        assert res == [expected]
