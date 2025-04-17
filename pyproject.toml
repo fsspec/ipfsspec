@@ -20,7 +20,7 @@ classifiers = [
 dynamic = ["version"]
 
 dependencies = [
-    "fsspec>=0.9.0",
+    "fsspec>=2024.12.0",
     "requests",
     "aiohttp",
     "aiohttp-retry",
