@@ -18,6 +18,7 @@ from fsspec.utils import isfilelike
 
 from multiformats import CID, multicodec
 from . import unixfsv1
+from .car import read_car
 
 import logging
 
@@ -69,20 +70,30 @@ class AsyncIPFSGateway:
         return f"GW({self.url})"
 
     async def info(self, path, session):
-        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.raw"}, params={"format": "raw"})
+        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.car"}, params={"format": "car", "dag-scope": "block"})
         self._raise_not_found_for_status(res, path)
-        cid = CID.decode(res.headers["X-Ipfs-Roots"].split(",")[-1])
+
+        roots = res.headers["X-Ipfs-Roots"].split(",")
+        if len(roots) != len(path.split("/")):
+            raise FileNotFoundError(path)
+
+        cid = CID.decode(roots[-1])
         resdata = await res.read()
+
+        _, blocks = read_car(resdata)  # roots should be ignored by https://specs.ipfs.tech/http-gateways/trustless-gateway/
+        blocks = {cid: data for cid, data, _ in blocks}
+        block = blocks[cid]
 
         if cid.codec == RawCodec:
             return {
                 "name": path,
                 "CID": str(cid),
                 "type": "file",
-                "size": len(resdata),
+                "size": len(block),
             }
         elif cid.codec == DagPbCodec:
-            node = unixfsv1.PBNode.loads(resdata)
+
+            node = unixfsv1.PBNode.loads(block)
             data = unixfsv1.Data.loads(node.Data)
             if data.Type == unixfsv1.DataType.Raw:
                 raise FileNotFoundError(path)  # this is not a file, it's only a part of it
@@ -133,12 +144,20 @@ class AsyncIPFSGateway:
             yield size, res.content.iter_chunked(chunk_size)
 
     async def ls(self, path, session, detail=False):
-        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.raw"}, params={"format": "raw"})
+        res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.car"}, params={"format": "car", "dag-scope": "block"})
         self._raise_not_found_for_status(res, path)
-        resdata = await res.read()
-        cid = CID.decode(res.headers["X-Ipfs-Roots"].split(",")[-1])
+        roots = res.headers["X-Ipfs-Roots"].split(",")
+        if len(roots) != len(path.split("/")):
+            raise FileNotFoundError(path)
+
+        cid = CID.decode(roots[-1])
         assert cid.codec == DagPbCodec, "this is not a directory"
-        node = unixfsv1.PBNode.loads(resdata)
+
+        resdata = await res.read()
+
+        _, blocks = read_car(resdata)  # roots should be ignored by https://specs.ipfs.tech/http-gateways/trustless-gateway/
+        blocks = {cid: data for cid, data, _ in blocks}
+        node = unixfsv1.PBNode.loads(blocks[cid])
         data = unixfsv1.Data.loads(node.Data)
         if data.Type != unixfsv1.DataType.Directory:
             # TODO: we might need support for HAMTShard here (for large directories)
@@ -180,12 +199,16 @@ def gateway_from_file(gateway_path, protocol="ipfs"):
 
 
 @lru_cache
-def get_gateway(protocol="ipfs"):
+def get_gateway(protocol="ipfs", gateway_addr=None):
     """
     Get IPFS gateway according to IPIP-280
 
     see: https://github.com/ipfs/specs/pull/280
     """
+
+    if gateway_addr:
+        logger.debug("using IPFS gateway as specified via function argument: %s", gateway_addr)
+        return AsyncIPFSGateway(gateway_addr, protocol)
 
     # IPFS_GATEWAY environment variable should override everything
     ipfs_gateway = os.environ.get("IPFS_GATEWAY", "")
@@ -263,19 +286,20 @@ class AsyncIPFSFileSystem(AsyncFileSystem):
     sep = "/"
     protocol = "ipfs"
 
-    def __init__(self, asynchronous=False, loop=None, client_kwargs=None, **storage_options):
+    def __init__(self, asynchronous=False, loop=None, client_kwargs=None, gateway_addr=None, **storage_options):
         super().__init__(self, asynchronous=asynchronous, loop=loop, **storage_options)
         self._session = None
 
         self.client_kwargs = client_kwargs or {}
         self.get_client = get_client
+        self.gateway_addr = gateway_addr
 
         if not asynchronous:
             sync(self.loop, self.set_session)
 
     @property
     def gateway(self):
-        return get_gateway(self.protocol)
+        return get_gateway(self.protocol, gateway_addr=self.gateway_addr)
 
     @staticmethod
     def close_session(loop, session):
