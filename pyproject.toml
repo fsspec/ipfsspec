@@ -9,7 +9,7 @@ authors = [
 ]
 description = "readonly implementation of fsspec for IPFS"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 keywords = ["fsspec", "IPFS", "filesystem"]
 license = {text = "MIT"}
 classifiers = [
