@@ -7,7 +7,7 @@ from ipfsspec.async_ipfs import AsyncIPFSGateway
 from ipfsspec.car import read_car
 
 
-# Test data from test/test_car.car
+# Test data from test/testdata.car
 # Root: QmW3CrGFuFyF3VH1wvrap4Jend5NRTgtESDjuQ7QhHD5dd (directory)
 # Children:
 #   - default: QmZsn2gmGC6yBs6TWPiRspXfTJ3K4DEtWUePVqBJ84YkU8
@@ -19,9 +19,9 @@ from ipfsspec.car import read_car
 
 @pytest.fixture
 def test_car():
-    """Load blocks and root CID from test/test_car.car"""
+    """Load blocks and root CID from test/testdata.car"""
     root_cid = CID.decode("QmW3CrGFuFyF3VH1wvrap4Jend5NRTgtESDjuQ7QhHD5dd")
-    car_path = Path(__file__).parent / "test_car.car"
+    car_path = Path(__file__).parent / "testdata.car"
     with open(car_path, "rb") as f:
         car_data = f.read()
 
