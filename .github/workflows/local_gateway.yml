@@ -4,13 +4,13 @@ on: [push, pull_request]
 
 jobs:
   test:
-
+    name: Python ${{ matrix.python-version }} / Kubo ${{ matrix.kubo-version }}
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 4
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        ipfs-version: ["0.30.0"]
+        kubo-version: ["0.39.0"]
     steps:
     - uses: actions/checkout@v1
     - name: Set up Python ${{ matrix.python-version }}
@@ -21,20 +21,15 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e .
-    - name: Install ipfs
-      run: |
-        wget https://dist.ipfs.io/go-ipfs/v${{ matrix.ipfs-version }}/go-ipfs_v${{ matrix.ipfs-version }}_linux-amd64.tar.gz
-        tar -xvzf go-ipfs_v${{ matrix.ipfs-version }}_linux-amd64.tar.gz
-        pushd go-ipfs
-        sudo bash install.sh
-        sudo sysctl -w net.core.rmem_max=2500000
-        popd
-        ipfs --version
-        ipfs init --profile server
-        touch ipfs.log
-        ipfs daemon 2>ipfs.log | grep -i -o -m1 'Daemon is ready' & tail -f --pid=$! ipfs.log
-        ipfs cat /ipfs/QmQPeNsJPyVWPFDVHb77w8G42Fvo15z4bG2X8D2GhfbSXc/readme
-        ipfs dag import test/testdata.car
+    - name: Install IPFS
+      uses: ipfs/download-ipfs-distribution-action@v1
+      with:
+        name: kubo
+        version: v${{ matrix.kubo-version }}
+    - name: Start IPFS daemon
+      uses: ipfs/start-ipfs-daemon-action@v1
+    - name: Import test data
+      run: ipfs dag import test/testdata.car
     - name: Test with pytest
       run: |
         pip install pytest pytest-asyncio
