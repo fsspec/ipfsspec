@@ -69,19 +69,82 @@ class AsyncIPFSGateway:
     def __str__(self):
         return f"GW({self.url})"
 
+    @staticmethod
+    def _verify_merkle_path(path, blocks):
+        """
+        Verify that blocks form a valid chain from root CID through path segments.
+
+        According to the trustless gateway spec, dag-scope=block returns blocks
+        needed to verify path segments. This function validates the chain of custody
+        by checking that each parent block contains a PBLink to its child.
+
+        Args:
+            path: Full path like "bafy/dir/file"
+            blocks: Dict mapping CID -> block data from CAR response
+
+        Returns:
+            Final CID at the end of the path
+
+        Raises:
+            FileNotFoundError: If path cannot be verified through the chain
+        """
+        segments = path.split("/")
+
+        # First segment must be the root CID
+        try:
+            current_cid = CID.decode(segments[0])
+        except Exception as e:
+            raise FileNotFoundError(f"Invalid root CID in path: {segments[0]}") from e
+
+        # Verify root block exists in CAR
+        if current_cid not in blocks:
+            raise FileNotFoundError(f"Root block {current_cid} not found in CAR response")
+
+        # Walk through path segments, validating each link
+        for segment in segments[1:]:
+            current_block = blocks[current_cid]
+
+            # Decode as PBNode to access links
+            if current_cid.codec != DagPbCodec:
+                raise FileNotFoundError(f"Cannot traverse path through non-DAG-PB block: {current_cid}")
+
+            node = unixfsv1.PBNode.loads(current_block)
+
+            # Find link matching this path segment
+            matching_link = None
+            for link in node.Links:
+                if link.Name == segment:
+                    matching_link = link
+                    break
+
+            if matching_link is None:
+                raise FileNotFoundError(f"Path segment '{segment}' not found in directory {current_cid}")
+
+            # Decode the child CID from the link's Hash
+            try:
+                child_cid = CID.decode(matching_link.Hash)
+            except Exception as e:
+                raise FileNotFoundError(f"Invalid CID in link '{segment}'") from e
+
+            # Verify child block exists in CAR
+            if child_cid not in blocks:
+                raise FileNotFoundError(f"Child block {child_cid} for path segment '{segment}' not found in CAR response")
+
+            current_cid = child_cid
+
+        return current_cid
+
     async def info(self, path, session):
         res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.car"}, params={"format": "car", "dag-scope": "block"})
         self._raise_not_found_for_status(res, path)
 
-        roots = res.headers["X-Ipfs-Roots"].split(",")
-        if len(roots) != len(path.split("/")):
-            raise FileNotFoundError(path)
-
-        cid = CID.decode(roots[-1])
         resdata = await res.read()
 
         _, blocks = read_car(resdata)  # roots should be ignored by https://specs.ipfs.tech/http-gateways/trustless-gateway/
         blocks = {cid: data for cid, data, _ in blocks}
+
+        # Verify the merkle proof from root CID through path segments
+        cid = self._verify_merkle_path(path, blocks)
         block = blocks[cid]
 
         if cid.codec == RawCodec:
@@ -146,17 +209,18 @@ class AsyncIPFSGateway:
     async def ls(self, path, session, detail=False):
         res = await self.get(path, session, headers={"Accept": "application/vnd.ipld.car"}, params={"format": "car", "dag-scope": "block"})
         self._raise_not_found_for_status(res, path)
-        roots = res.headers["X-Ipfs-Roots"].split(",")
-        if len(roots) != len(path.split("/")):
-            raise FileNotFoundError(path)
-
-        cid = CID.decode(roots[-1])
-        assert cid.codec == DagPbCodec, "this is not a directory"
 
         resdata = await res.read()
 
         _, blocks = read_car(resdata)  # roots should be ignored by https://specs.ipfs.tech/http-gateways/trustless-gateway/
         blocks = {cid: data for cid, data, _ in blocks}
+
+        # Verify the chain of custody from root CID through path segments
+        cid = self._verify_merkle_path(path, blocks)
+
+        if cid.codec != DagPbCodec:
+            raise NotADirectoryError(f"Path {path} does not resolve to a directory")
+
         node = unixfsv1.PBNode.loads(blocks[cid])
         data = unixfsv1.Data.loads(node.Data)
         if data.Type != unixfsv1.DataType.Directory:
